@@ -2,5 +2,12 @@
 iac/environment-variables/** 
 .obsidian/
 venv/
-
 wip/**
+.claude/
+*.pyc
+config/**.pyc
+/config/fabric_core/__pycache__
+test_keyvault.py
+docs/repo-health-scorecard.md
+.DS_Store
+.ipynb_checkpoints/
