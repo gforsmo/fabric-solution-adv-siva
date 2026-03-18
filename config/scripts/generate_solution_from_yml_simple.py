@@ -3,6 +3,7 @@ import sys
 import time
 
 from dotenv import load_dotenv
+from azure.identity import ClientSecretCredential
 from fabric_core import (
     auth, bootstrap, create_workspace, assign_permissions,
     get_or_create_git_connection, connect_workspace_to_git,
@@ -17,6 +18,17 @@ if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
 
+def get_fabric_token():
+    """Get Bearer token for Fabric REST API calls."""
+    credential = ClientSecretCredential(
+        tenant_id=os.getenv("AZURE_TENANT_ID"),
+        client_id=os.getenv("AZURE_CLIENT_ID"),
+        client_secret=os.getenv("AZURE_CLIENT_SECRET")
+    )
+    token = credential.get_token("https://api.fabric.microsoft.com/.default")
+    return token.token
+
+
 def main():
     bootstrap()
 
@@ -24,10 +36,11 @@ def main():
         os.getenv('CONFIG_FILE', 'config/v01/v01-template.yml'))
 
     print("=== AUTHENTICATING ===")
-    token = auth()
-    if not token:
+    if not auth():
         print("\nERROR: Authentication failed. Cannot proceed.")
         return
+
+    fabric_token = get_fabric_token()
 
     azure_config = config['azure']
     subscription_id = azure_config['subscription_id']
@@ -53,7 +66,7 @@ def main():
                 workspace_id, workspace_config['permissions'], security_groups)
 
         if 'icon' in workspace_config and workspace_id:
-            set_workspace_icon(workspace_id, workspace_config['icon'], token)
+            set_workspace_icon(workspace_id, workspace_config['icon'], fabric_token)
 
         if 'connect_to_git_folder' in workspace_config and workspace_id and git_config:
             if not github_connection_id:
