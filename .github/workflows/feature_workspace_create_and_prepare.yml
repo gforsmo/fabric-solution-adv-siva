@@ -42,6 +42,8 @@ jobs:
         run: python config/scripts/create_feature_workspaces.py
         env:
           PYTHONPATH: config
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
           FEATURE_BRANCH_NAME: ${{ inputs.feature_branch_name }}
           WORKSPACES_TO_CREATE: ${{ inputs.workspaces_to_be_created }}
           AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
