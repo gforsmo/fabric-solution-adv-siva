@@ -49,6 +49,7 @@ workspaces:
     type: processing
     workspace_id: "${DEV_PROCESSING_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}devengineering"
+    icon: "Images/Icons/icon-processing.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"
@@ -58,6 +59,7 @@ workspaces:
     type: datastores
     workspace_id: "${DEV_DATASTORES_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}devengineering"
+    icon: "Images/Icons/icon-datastores.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"
@@ -67,6 +69,7 @@ workspaces:
     type: consumption
     workspace_id: "${DEV_CONSUMPTION_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}devengineering"
+    icon: "Images/Icons/icon-consumption.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"
@@ -77,6 +80,7 @@ workspaces:
     type: processing
     workspace_id: "${TEST_PROCESSING_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}testengineering"
+    icon: "Images/Icons/icon-processing.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"
@@ -85,6 +89,7 @@ workspaces:
     type: datastores
     workspace_id: "${TEST_DATASTORES_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}testengineering"
+    icon: "Images/Icons/icon-datastores.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"
@@ -93,6 +98,7 @@ workspaces:
     type: consumption
     workspace_id: "${TEST_CONSUMPTION_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}testconsumption"
+    icon: "Images/Icons/icon-consumption.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"
@@ -102,6 +108,7 @@ workspaces:
     type: processing
     workspace_id: "${PROD_PROCESSING_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}prodengineering"
+    icon: "Images/Icons/icon-processing.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"
@@ -110,6 +117,7 @@ workspaces:
     type: datastores
     workspace_id: "${PROD_DATASTORES_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}prodengineering"
+    icon: "Images/Icons/icon-datastores.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"
@@ -120,6 +128,7 @@ workspaces:
     type: consumption
     workspace_id: "${PROD_CONSUMPTION_WORKSPACE_ID}"
     capacity: "fc{{SOLUTION_VERSION}}prodconsumption"
+    icon: "Images/Icons/icon-consumption.png"
     permissions:
       - group: "sg-av-engineers"
         role: "Admin"

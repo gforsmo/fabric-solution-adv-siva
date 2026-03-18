@@ -1,20 +1,18 @@
-# Please note: the code in this Python file has intentionally been written WITHOUT things like:
-# testing, logging, error-handling, validation, documentation, comments etc
-# for now I'm trying to make it as simple as possible to follow the logic
-# In future weeks, we'll refactor the code to make it more robust!
-
 import os
 import sys
 import time
 
+from dotenv import load_dotenv
 from fabric_core import (
     auth, bootstrap, create_workspace, assign_permissions,
     get_or_create_git_connection, connect_workspace_to_git,
     create_capacity, suspend_capacity
 )
 from fabric_core.utils import load_config
+from fabric_core.workspace import set_workspace_icon
 
-# Ensure UTF-8 encoding for stdout to support Unicode characters (like checkmarks)
+load_dotenv()
+
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
@@ -23,10 +21,11 @@ def main():
     bootstrap()
 
     config = load_config(
-        os.getenv('CONFIG_FILE', 'config/templates/v01/v01-template.yml'))
+        os.getenv('CONFIG_FILE', 'config/v01/v01-template.yml'))
 
     print("=== AUTHENTICATING ===")
-    if not auth():
+    token = auth()
+    if not token:
         print("\nERROR: Authentication failed. Cannot proceed.")
         return
 
@@ -52,6 +51,9 @@ def main():
         if 'permissions' in workspace_config and workspace_id:
             assign_permissions(
                 workspace_id, workspace_config['permissions'], security_groups)
+
+        if 'icon' in workspace_config and workspace_id:
+            set_workspace_icon(workspace_id, workspace_config['icon'], token)
 
         if 'connect_to_git_folder' in workspace_config and workspace_id and git_config:
             if not github_connection_id:

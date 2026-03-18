@@ -3,8 +3,36 @@
 import re
 import time
 import json
+
+import base64
+import os
+import requests
+
 from .utils import get_fabric_cli_path, run_command
 
+def set_workspace_icon(workspace_id, icon_path, token):
+    if not os.path.exists(icon_path):
+        print(f"  [SKIP] Icon not found: {icon_path}")
+        return False
+
+    with open(icon_path, "rb") as f:
+        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/updateDetails"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    payload = {"iconBase64": image_b64}
+
+    response = requests.post(url, json=payload, headers=headers)
+
+    if response.status_code in (200, 201):
+        print(f"  [OK] Icon set for workspace {workspace_id}")
+        return True
+    else:
+        print(f"  [WARN] Could not set icon: {response.status_code} {response.text}")
+        return False
 
 def workspace_exists(workspace_name):
     """Check if a Fabric workspace exists."""
