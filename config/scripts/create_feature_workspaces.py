@@ -16,6 +16,8 @@ if str(config_dir) not in sys.path:
 from fabric_core import auth, create_workspace, assign_permissions
 from fabric_core import get_or_create_git_connection, connect_workspace_to_git, update_workspace_from_git
 from fabric_core.utils import load_config, run_command, get_fabric_cli_path
+from azure.identity import ClientSecretCredential
+import requests
 import json
 # fmt: on
 
@@ -33,19 +35,37 @@ def get_capacity_for_workspace_type(workspace_type, solution_version):
     return capacity_map.get(workspace_type)
 
 
+def get_azure_token():
+    """Get Azure management token using service principal."""
+    credential = ClientSecretCredential(
+        tenant_id=os.getenv("AZURE_TENANT_ID"),
+        client_id=os.getenv("AZURE_CLIENT_ID"),
+        client_secret=os.getenv("AZURE_CLIENT_SECRET")
+    )
+    return credential.get_token("https://management.azure.com/.default").token
+
+
 def capacity_is_running(capacity_name, subscription_id, resource_group):
-    """Check if Fabric capacity is in Active/Running state."""
-    result = run_command([
-        'az', 'fabric', 'capacity', 'show',
-        '--name', capacity_name,
-        '--resource-group', resource_group,
-        '--subscription', subscription_id,
-        '--query', 'properties.state',
-        '-o', 'tsv'
-    ])
-    state = result.stdout.strip().lower()
-    print(f"  Capacity {capacity_name} state: {state}")
-    return state == 'active'
+    """Check if Fabric capacity is Active using REST API."""
+    token = get_azure_token()
+    url = (
+        f"https://management.azure.com/subscriptions/{subscription_id}"
+        f"/resourceGroups/{resource_group}/providers/Microsoft.Fabric"
+        f"/capacities/{capacity_name}?api-version=2023-11-01"
+    )
+    response = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30
+    )
+
+    if response.status_code == 200:
+        state = response.json().get("properties", {}).get("state", "")
+        print(f"  Capacity {capacity_name} state: {state}")
+        return state == "Active"
+
+    print(f"  Could not check capacity state: {response.status_code} {response.text}")
+    return False
 
 
 def main():
@@ -72,11 +92,15 @@ def main():
         return
 
     print("\n=== CHECKING CAPACITIES ===")
+    checked_capacities = set()
     for workspace_type in workspace_types:
         capacity_name = get_capacity_for_workspace_type(workspace_type, solution_version)
-        if capacity_name and not capacity_is_running(capacity_name, subscription_id, resource_group):
-            print(f"✗ Capacity {capacity_name} is not running. Start it before creating feature workspaces.")
-            return
+        if capacity_name and capacity_name not in checked_capacities:
+            checked_capacities.add(capacity_name)
+            if not capacity_is_running(capacity_name, subscription_id, resource_group):
+                print(f"✗ Capacity {capacity_name} is not running. Start it before creating feature workspaces.")
+                return
+            print(f"  ✓ Capacity {capacity_name} is running")
 
     print(f"\n=== CREATING FEATURE WORKSPACES FOR BRANCH: {feature_branch} ===")
     github_connection_id = None
