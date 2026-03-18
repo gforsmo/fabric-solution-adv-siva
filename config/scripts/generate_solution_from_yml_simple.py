@@ -1,6 +1,11 @@
+# Please note: the code in this Python file has intentionally been written WITHOUT things like:
+# testing, logging, error-handling, validation, documentation, comments etc
+# for now I'm trying to make it as simple as possible to follow the logic
+# In future weeks, we'll refactor the code to make it more robust!
 import os
 import sys
 import time
+import logging
 
 from dotenv import load_dotenv
 from azure.identity import ClientSecretCredential
@@ -14,12 +19,20 @@ from fabric_core.workspace import set_workspace_icon
 
 load_dotenv()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%H:%M:%S"
+)
+log = logging.getLogger(__name__)
+
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
 
 def get_fabric_token():
     """Get Bearer token for Fabric REST API calls."""
+    log.info("Fetching Fabric API token")
     credential = ClientSecretCredential(
         tenant_id=os.getenv("AZURE_TENANT_ID"),
         client_id=os.getenv("AZURE_CLIENT_ID"),
@@ -32,13 +45,15 @@ def get_fabric_token():
 def main():
     bootstrap()
 
-    config = load_config(
-        os.getenv('CONFIG_FILE', 'config/v01/v01-template.yml'))
+    config_file = os.getenv('CONFIG_FILE', 'config/v01/v01-template.yml')
+    log.info("Loading config: %s", config_file)
+    config = load_config(config_file)
 
-    print("=== AUTHENTICATING ===")
+    log.info("=== AUTHENTICATING ===")
     if not auth():
-        print("\nERROR: Authentication failed. Cannot proceed.")
+        log.error("Authentication failed. Cannot proceed.")
         return
+    log.info("Authenticated successfully")
 
     fabric_token = get_fabric_token()
 
@@ -48,45 +63,83 @@ def main():
     security_groups = azure_config.get('security_groups', {})
     git_config = config.get('github', {})
 
-    print("\n=== CREATING CAPACITIES ===")
-    for capacity_config in config.get('capacities', []):
+    # ── Capacities ────────────────────────────────────────────────────────────
+    log.info("=== CREATING CAPACITIES ===")
+    capacities = config.get('capacities', [])
+    log.info("Capacities to create: %d", len(capacities))
+
+    for capacity_config in capacities:
         resource_group = capacity_config.get(
             'resource_group', capacity_defaults.get('resource_group'))
+        log.info("Creating capacity: %s", capacity_config.get('name'))
         create_capacity(capacity_config, subscription_id,
                         resource_group, capacity_defaults)
 
-    print("\n=== CREATING WORKSPACES ===")
-    github_connection_id = None
+    # ── Workspaces ────────────────────────────────────────────────────────────
+    log.info("=== CREATING WORKSPACES ===")
+    workspaces = config.get('workspaces', [])
+    log.info("Workspaces to create: %d", len(workspaces))
 
-    for workspace_config in config.get('workspaces', []):
+    github_connection_id = None
+    results = []
+
+    for workspace_config in workspaces:
+        workspace_name = workspace_config.get('name', 'unknown')
+        log.info("--- Processing %s ---", workspace_name)
+
         workspace_id = create_workspace(workspace_config)
 
-        if 'permissions' in workspace_config and workspace_id:
+        if not workspace_id:
+            log.error("Failed to create workspace: %s", workspace_name)
+            results.append((workspace_name, "FAILED – not created"))
+            continue
+
+        log.info("Workspace created: %s (%s)", workspace_name, workspace_id)
+
+        if 'permissions' in workspace_config:
+            log.info("Assigning permissions for %s", workspace_name)
             assign_permissions(
                 workspace_id, workspace_config['permissions'], security_groups)
 
-        if 'icon' in workspace_config and workspace_id:
+        if 'icon' in workspace_config:
+            log.info("Setting icon for %s", workspace_name)
             set_workspace_icon(workspace_id, workspace_config['icon'], fabric_token)
 
-        if 'connect_to_git_folder' in workspace_config and workspace_id and git_config:
+        if 'connect_to_git_folder' in workspace_config and git_config:
             if not github_connection_id:
+                log.info("Getting or creating Git connection")
                 github_connection_id = get_or_create_git_connection(
                     workspace_id, git_config)
 
             if github_connection_id:
-                connect_workspace_to_git(workspace_id, workspace_config['name'],
+                log.info("Connecting %s to Git folder: %s",
+                         workspace_name, workspace_config['connect_to_git_folder'])
+                connect_workspace_to_git(workspace_id, workspace_name,
                                          workspace_config['connect_to_git_folder'],
                                          git_config, github_connection_id)
+                results.append((workspace_name, "OK"))
+            else:
+                log.warning("No Git connection available for %s", workspace_name)
+                results.append((workspace_name, "WARNING – no Git connection"))
+        else:
+            results.append((workspace_name, "OK – no Git required"))
 
-    print("\n=== SUSPENDING CAPACITIES ===")
+    # ── Suspend capacities ────────────────────────────────────────────────────
+    log.info("=== SUSPENDING CAPACITIES ===")
+    log.info("Waiting 20 seconds before suspending")
     time.sleep(20)
-    for capacity_config in config.get('capacities', []):
+
+    for capacity_config in capacities:
         resource_group = capacity_config.get(
             'resource_group', capacity_defaults.get('resource_group'))
-        suspend_capacity(capacity_config['name'],
-                         subscription_id, resource_group)
+        log.info("Suspending capacity: %s", capacity_config['name'])
+        suspend_capacity(capacity_config['name'], subscription_id, resource_group)
 
-    print("\n Done")
+    # ── Summary ───────────────────────────────────────────────────────────────
+    log.info("=== SUMMARY ===")
+    for name, status in results:
+        log.info("  %-50s %s", name, status)
+    log.info("=== DONE ===")
 
 
 if __name__ == "__main__":
