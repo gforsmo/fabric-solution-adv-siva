@@ -18,14 +18,14 @@ def set_workspace_icon(workspace_id, icon_path, token):
     with open(icon_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-    url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/updateDetails"
+    url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
     payload = {"iconBase64": image_b64}
 
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    response = requests.patch(url, json=payload, headers=headers, timeout=30)
 
     if response.status_code in (200, 201):
         print(f"  [OK] Icon set for workspace {workspace_id}")
