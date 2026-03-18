@@ -25,7 +25,7 @@ def set_workspace_icon(workspace_id, icon_path, token):
     }
     payload = {"iconBase64": image_b64}
 
-    response = requests.post(url, json=payload, headers=headers)
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
 
     if response.status_code in (200, 201):
         print(f"  [OK] Icon set for workspace {workspace_id}")
@@ -85,8 +85,7 @@ def create_workspace(workspace_config):
     workspace_id = get_workspace_id(workspace_name)
 
     if not workspace_id:
-        print(f"  Warning: Workspace created but ID could not be retrieved")
-
+        print("  Warning: Workspace created but ID could not be retrieved")
     return workspace_id
 
 
@@ -169,7 +168,7 @@ def assign_permissions(workspace_id, permissions, security_groups):
 
         try:
             response_json = json.loads(assign_response.stdout)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             print(f"  ERROR: Failed to assign {permission['role']} to {permission['group']}: Invalid JSON")
             print(f"    stdout: {assign_response.stdout}")
             print(f"    stderr: {assign_response.stderr}")
