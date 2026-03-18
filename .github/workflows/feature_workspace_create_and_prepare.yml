@@ -29,6 +29,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin
           git checkout -B ${{ inputs.feature_branch_name }}
+          mkdir -p solution/processing solution/datastores solution/consumption
+          touch solution/processing/.gitkeep
+          touch solution/datastores/.gitkeep
+          touch solution/consumption/.gitkeep
+          git add solution/
+          git diff --staged --quiet || git commit -m "add solution folder structure"
           git push -u origin ${{ inputs.feature_branch_name }} --force
       - uses: actions/setup-python@v5
         with:
