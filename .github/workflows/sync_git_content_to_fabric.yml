@@ -1,0 +1,37 @@
+name: Sync to DEV Environment
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  sync-dev-workspaces:
+    # Only run if PR was merged (not just closed)
+    if: github.event.pull_request.merged == true
+    runs-on: windows-latest
+
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.SPN_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      GITHUB_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_ACTIONS: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r config/requirements.txt && pip install -e config/
+
+      - name: Sync dev workspaces from main
+        run: python config/scripts/sync_dev_workspaces_from_main.py
