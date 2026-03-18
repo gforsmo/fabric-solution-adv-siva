@@ -37,7 +37,7 @@ def main():
 
     # Load config to get solution version and workspace configuration
     config = load_config(
-        os.getenv('CONFIG_FILE', 'config/templates/v01/v01-template.yml'))
+        os.getenv('CONFIG_FILE', 'config/v01/v01-template.yml'))
 
     solution_version = config.get('solution_version', 'av01')
     workspaces_config = config.get('workspaces', [])
