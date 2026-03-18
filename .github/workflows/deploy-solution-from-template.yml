@@ -7,7 +7,9 @@ on:
         description: "Path to configuration template file"
         required: false
         type: string
-        default: "config/templates/v01/v01-template.yml"
+        #default: "config/templates/v01/v01-template.yml"
+        default: "config/v01/v01-template.yml"
+        
 
 env:
   PYTHON_VERSION: '3.12'
@@ -37,4 +39,4 @@ jobs:
         run: pip install -r config/requirements.txt && pip install -e config/
 
       - name: Run solution generator
-        run: python config/generate_solution_from_yml_simple.py
+        run: python config/scripts/generate_solution_from_yml_simple.py
