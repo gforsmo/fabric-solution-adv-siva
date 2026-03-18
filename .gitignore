@@ -10,4 +10,4 @@ config/**.pyc
 test_keyvault.py
 docs/repo-health-scorecard.md
 .DS_Store
-.ipynb_checkpoints/
+.ipynb_checkpoints/.vscode/
