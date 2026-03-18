@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Create and push feature branch
@@ -36,7 +36,7 @@ jobs:
           git add solution/
           git diff --staged --quiet || git commit -m "add solution folder structure"
           git push -u origin ${{ inputs.feature_branch_name }} --force
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install pip & requirements
