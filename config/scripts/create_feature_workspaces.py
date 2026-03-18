@@ -6,6 +6,7 @@ Create feature workspaces for development branches.
 # isort: skip_file
 import os
 import sys
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -20,6 +21,13 @@ from azure.identity import ClientSecretCredential
 import requests
 import json
 # fmt: on
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%H:%M:%S"
+)
+log = logging.getLogger(__name__)
 
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -37,6 +45,7 @@ def get_capacity_for_workspace_type(workspace_type, solution_version):
 
 def get_azure_token():
     """Get Azure management token using service principal."""
+    log.info("Fetching Azure management token")
     credential = ClientSecretCredential(
         tenant_id=os.getenv("AZURE_TENANT_ID"),
         client_id=os.getenv("AZURE_CLIENT_ID"),
@@ -47,6 +56,7 @@ def get_azure_token():
 
 def capacity_is_running(capacity_name, subscription_id, resource_group):
     """Check if Fabric capacity is Active using REST API."""
+    log.info("Checking capacity: %s", capacity_name)
     token = get_azure_token()
     url = (
         f"https://management.azure.com/subscriptions/{subscription_id}"
@@ -61,22 +71,30 @@ def capacity_is_running(capacity_name, subscription_id, resource_group):
 
     if response.status_code == 200:
         state = response.json().get("properties", {}).get("state", "")
-        print(f"  Capacity {capacity_name} state: {state}")
+        log.info("Capacity %s state: %s", capacity_name, state)
         return state == "Active"
 
-    print(f"  Could not check capacity state: {response.status_code} {response.text}")
+    log.error("Could not check capacity %s: %s %s",
+              capacity_name, response.status_code, response.text)
     return False
 
 
 def main():
     if not os.getenv('GITHUB_ACTIONS'):
+        log.info("Running locally – loading .env")
         load_dotenv(Path(__file__).parent.parent.parent / '.env')
 
     feature_branch = os.getenv('FEATURE_BRANCH_NAME')
     workspaces_input = os.getenv('WORKSPACES_TO_CREATE', 'processing,datastores')
     workspace_types = [ws.strip() for ws in workspaces_input.split(',') if ws.strip()]
 
-    config = load_config(os.getenv('CONFIG_FILE', 'config/v01/v01-template.yml'))
+    log.info("Feature branch: %s", feature_branch)
+    log.info("Workspace types: %s", workspace_types)
+
+    config_file = os.getenv('CONFIG_FILE', 'config/v01/v01-template.yml')
+    log.info("Loading config: %s", config_file)
+    config = load_config(config_file)
+
     solution_version = config.get('solution_version', 'av01')
     azure_config = config['azure']
     subscription_id = azure_config['subscription_id']
@@ -86,34 +104,37 @@ def main():
     git_config = config.get('github', {})
     git_config['branch'] = feature_branch
 
-    print("=== AUTHENTICATING ===")
+    log.info("=== AUTHENTICATING ===")
     if not auth():
-        print("\n✗ Authentication failed. Cannot proceed.")
+        log.error("Authentication failed. Cannot proceed.")
         return
+    log.info("Authenticated successfully")
 
-    print("\n=== CHECKING CAPACITIES ===")
+    log.info("=== CHECKING CAPACITIES ===")
     checked_capacities = set()
     for workspace_type in workspace_types:
         capacity_name = get_capacity_for_workspace_type(workspace_type, solution_version)
         if capacity_name and capacity_name not in checked_capacities:
             checked_capacities.add(capacity_name)
             if not capacity_is_running(capacity_name, subscription_id, resource_group):
-                print(f"✗ Capacity {capacity_name} is not running. Start it before creating feature workspaces.")
+                log.error("Capacity %s is not running. Start it first.", capacity_name)
                 return
-            print(f"  ✓ Capacity {capacity_name} is running")
+            log.info("Capacity %s is running", capacity_name)
 
-    print(f"\n=== CREATING FEATURE WORKSPACES FOR BRANCH: {feature_branch} ===")
+    log.info("=== CREATING FEATURE WORKSPACES FOR BRANCH: %s ===", feature_branch)
     github_connection_id = None
+    results = []
 
     for workspace_type in workspace_types:
         workspace_name = f"{solution_version}-{feature_branch}-{workspace_type}"
         capacity_name = get_capacity_for_workspace_type(workspace_type, solution_version)
 
         if not capacity_name:
-            print(f"✗ Unknown workspace type: {workspace_type}")
+            log.error("Unknown workspace type: %s", workspace_type)
+            results.append((workspace_name, "FAILED – unknown type"))
             continue
 
-        print(f"\n--- Creating {workspace_name} ---")
+        log.info("--- Creating %s ---", workspace_name)
 
         workspace_config = {
             'name': workspace_name,
@@ -121,30 +142,48 @@ def main():
         }
         workspace_id = create_workspace(workspace_config)
 
-        if workspace_id:
-            permissions = [{'group': 'sg-av-engineers', 'role': 'Admin'}]
-            assign_permissions(workspace_id, permissions, security_groups)
+        if not workspace_id:
+            log.error("Failed to create workspace: %s", workspace_name)
+            results.append((workspace_name, "FAILED – not created"))
+            continue
 
-            if not github_connection_id:
-                github_connection_id = get_or_create_git_connection(workspace_id, git_config)
+        log.info("Workspace created: %s (%s)", workspace_name, workspace_id)
 
-            if github_connection_id:
-                git_directory = f"solution/{workspace_type}/"
-                success = connect_workspace_to_git(
-                    workspace_id, workspace_name,
-                    git_directory, git_config, github_connection_id
-                )
+        permissions = [{'group': 'sg-av-engineers', 'role': 'Admin'}]
+        assign_permissions(workspace_id, permissions, security_groups)
 
-                if success:
-                    run_command([
-                        get_fabric_cli_path(), 'api', '-X', 'post',
-                        f'workspaces/{workspace_id}/git/initializeConnection',
-                        '-i', '{}'
-                    ])
-                    print("  ✓ Initialized Git connection")
-                    update_workspace_from_git(workspace_id, workspace_name)
+        if not github_connection_id:
+            log.info("Getting or creating Git connection")
+            github_connection_id = get_or_create_git_connection(workspace_id, git_config)
 
-    print("\n✓ Feature workspace creation complete")
+        if github_connection_id:
+            git_directory = f"solution/{workspace_type}/"
+            log.info("Connecting to Git: branch=%s folder=%s", feature_branch, git_directory)
+            success = connect_workspace_to_git(
+                workspace_id, workspace_name,
+                git_directory, git_config, github_connection_id
+            )
+
+            if success:
+                run_command([
+                    get_fabric_cli_path(), 'api', '-X', 'post',
+                    f'workspaces/{workspace_id}/git/initializeConnection',
+                    '-i', '{}'
+                ])
+                log.info("Git connection initialized")
+                update_workspace_from_git(workspace_id, workspace_name)
+                results.append((workspace_name, "OK"))
+            else:
+                log.warning("Could not connect %s to Git", workspace_name)
+                results.append((workspace_name, "WARNING – Git not connected"))
+        else:
+            log.warning("No Git connection available for %s", workspace_name)
+            results.append((workspace_name, "WARNING – no Git connection"))
+
+    log.info("=== SUMMARY ===")
+    for name, status in results:
+        log.info("  %-50s %s", name, status)
+    log.info("=== DONE ===")
 
 
 if __name__ == "__main__":
