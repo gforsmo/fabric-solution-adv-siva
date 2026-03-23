@@ -4,6 +4,8 @@ Create feature workspaces for development branches.
 
 # fmt: off
 # isort: skip_file
+import requests
+#import json
 import os
 import sys
 import logging
@@ -18,8 +20,7 @@ from fabric_core import auth, create_workspace, assign_permissions
 from fabric_core import get_or_create_git_connection, connect_workspace_to_git, update_workspace_from_git
 from fabric_core.utils import load_config, run_command, get_fabric_cli_path
 from azure.identity import ClientSecretCredential
-import requests
-import json
+
 # fmt: on
 
 logging.basicConfig(
