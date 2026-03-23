@@ -2,10 +2,10 @@
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
   "metadata": {
     "type": "Notebook",
-    "displayName": "nb-av01-0-ingest-api"
+    "displayName": "nb-av01-4-validate"
   },
   "config": {
     "version": "2.0",
-    "logicalId": "f46eef96-e7fc-9a43-4787-883c7cab0c4b"
+    "logicalId": "28c4cf18-a6db-8864-483f-e330d5772240"
   }
 }
