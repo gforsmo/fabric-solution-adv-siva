@@ -11,24 +11,17 @@
 
 # MARKDOWN ********************
 
-# #### PRJ104 ⬛ ADV Project (Sprint 4): Initial data extraction (YouTube)  
-#  
-# > The code in this notebook is written as part of Week 4 of the Advanced Project, in [Fabric Dojo](https://skool.com/fabricdojo/about). The intention is first to get the extraction functionality working. In future weeks, we'll be refactoring this into a metadata-driven extraction process. 
+# # nb-av01-0-ingest-api
+# **Purpose**: Ingest data from external REST APIs to the Raw landing zone.
 # 
-# #### Data extraction strategy
-# In this notebook we will: 
-# - Step 0: Solution Step Up - importing packages, helper functions, defining metadata 
-# - Step 1: get AKV secret from Azure Key Vault (secure storage of Google Developers project key for querying YouTube Data V3 API)
-# - Step 2: get overall channel information for a YouTube channel, and write it to a Lakehouse Files area (our Bronze layer)
-# - Step 3: get all videos on a channel (and write to Bronze layer) 
-# - Step 4: get statistics for all videos on a channel (and write to Bronze layer) 
+# **Stage**: External APIs → Raw (Files in Bronze Lakehouse)
 # 
-# This notebook is dynamic: it can be run in DEV, TEST and PROD, thanks to the use of Variable libraries. 
-# 
-# #### Step 0: Solution Set up
-# 
-# Import packages: 
+# **Dependencies**: nb-av01-generic-functions, nb-av01-api-tools-youtube
 
+
+# MARKDOWN ********************
+
+# ## Imports & Setup
 
 # CELL ********************
 
@@ -45,97 +38,57 @@ import json
 # META   "language_group": "synapse_pyspark"
 # META }
 
-# MARKDOWN ********************
+# PARAMETERS CELL ********************
 
-# In this solution, we're using Variable Libraries for store different variable values that we need in different deployment workspaces (DEV, TEST, PROD). 
-# 
-# Let's get the ABFS path for the Lakehouse we are going to write our RAW data to... 
-# 
-# This will vary depending on the current deployment stage. 
+# Parameters - passed via REST API execution
+spn_tenant_id = ""
+spn_client_id = ""
+spn_client_secret = ""
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
 
 # CELL ********************
 
+%run nb-av01-generic-functions
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+%run nb-av01-api-tools-youtube
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
+
+# ## Configuration
+
+# CELL ********************
+
+# Configure SPN credentials for Key Vault access if provided
+if spn_tenant_id and spn_client_id and spn_client_secret:
+    set_spn_credentials(spn_tenant_id, spn_client_id, spn_client_secret)
+
+# Load workspace-specific variables from Variable Library
 variables = notebookutils.variableLibrary.getLibrary("vl-av01-variables")
 
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# MARKDOWN ********************
-
-# Define some helper functions (that we'll use across multiple steps): 
-
-# CELL ********************
-
-def get_data_from_endpoint(BASE_URL, base_params, additional_params = ""): 
-    """Construct a GET request and return the JSON results"""
-    
-    params = base_params + additional_params
-
-    full_URI = f'{BASE_URL}?key={api_key}&{params}'
-
-    response = requests.get(full_URI) 
-
-    json_data = response.json()
-
-    return json_data
-
-def get_data_with_pagination(BASE_URL, base_params, additional_params = ""):
-    """Construct a GET request and return the JSON results, with Pagination"""
-    all_items = []
-    next_page_token = None
-    params = base_params + additional_params
-
-    while True:
-        if next_page_token:
-            additional_params_plus_token = additional_params + f'&pageToken={next_page_token}'
-        else: 
-            additional_params_plus_token = additional_params
-        
-        json_data = get_data_from_endpoint(BASE_URL, base_params, additional_params_plus_token)
-
-        json_data_items = json_data.get("items", {})
-        
-        all_items.extend(json_data_items)
-
-        next_page_token = json_data.get('nextPageToken', None)
-                
-        if not next_page_token:
-            break
-
-    print("Total items: ", len(all_items))
-    return all_items
-
-
-def construct_abfs_write_path(write_location): 
-    """Constructs an ABFS path to write RAW JSON files into a Lakehouse
-    It uses variables (from the Variable Library), that the path is dynamic across deployment environments
-    """
-    
-    # 'variables' is the values from the Variable Library 
-    ws_name = variables.LH_WORKSPACE_NAME
-    lh_name = variables.BRONZE_LH_NAME
-
-    formatted_date = datetime.now().strftime("%Y%m%d")
-
-    file_name = f"{formatted_date}-{id}.json" 
-
-    abfs_path = f"abfss://{ws_name}@onelake.dfs.fabric.microsoft.com/{lh_name}.Lakehouse/Files/{write_location}{file_name}"
-    
-    return abfs_path
-
-def write_json_to_location(json_data, location, id):  
-    """Write JSON files to RAW Lakehouse area"""
-
-    abfs_path = construct_abfs_write_path(location)
-
-    json_string = json.dumps(json_data, indent=2)
-
-    notebookutils.fs.put(abfs_path, json_string, overwrite=True)
-        
+# Build base path for raw files landing zone (Files area of Bronze LH)
+RAW_BASE_PATH = construct_abfs_path(variables.LH_WORKSPACE_NAME, variables.BRONZE_LH_NAME, area="Files")
 
 # METADATA ********************
 
@@ -146,28 +99,47 @@ def write_json_to_location(json_data, location, id):
 
 # MARKDOWN ********************
 
-# #### Defining some metadata for scalability
-# For now, we will just use a Python object to store the metadata, but in later weeks, we will store this metadata (& add to it!)
+# ## Load Metadata
 
 # CELL ********************
 
-METADATA = {
-    "yt-channels": {
-        "base_url": "https://www.googleapis.com/youtube/v3/channels", 
-        "base_params": "part=snippet,statistics,contentDetails&id=UCrvoIYkzS-RvCEb0x7wfmwQ",
-        "write_location": "youtube_data_v3/channels/"
-    }, 
-    "yt-playlistItems": {
-        "base_url": "https://www.googleapis.com/youtube/v3/playlistItems", 
-        "base_params": "part=snippet&maxResults=50", 
-        "write_location": "youtube_data_v3/playlistItems/"
-    },
-    "yt-videos": {
-        "base_url": "https://www.googleapis.com/youtube/v3/videos", 
-        "base_params": "part=statistics&maxresults=50", 
-        "write_location": "youtube_data_v3/videos/"
-    }
-}
+# Configure connection to metadata SQL database
+set_metadata_db_url(
+    server=variables.METADATA_SERVER,
+    database=variables.METADATA_DB
+)
+
+# Load source store for API connection details (source_id -> base_url, key_vault_url, handler_function, etc.)
+source_lookup = load_source_store(spark)
+
+# Load log store for logging function lookup
+log_lookup = load_log_store(spark)
+
+# Get all active ingestion instructions
+ingestion_instructions = get_active_instructions(spark, "ingestion")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+df = spark.read.option("url", METADATA_DB_URL).mssql("metadata.source_store")
+df.printSchema()  
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+print(source_lookup)
 
 # METADATA ********************
 
@@ -178,208 +150,62 @@ METADATA = {
 
 # MARKDOWN ********************
 
-# #### Step 1: Get secret from Azure Key Vault
+# ## Execute Ingestion
+#  Expected fields in each instruction from `instructions.ingestion`:
+#  - `source_id` (int, required): Lookup key in metadata.source_store
+#  - `endpoint_path` (str, required): API endpoint path (e.g., '/channels')
+#  - `request_params` (JSON str, optional): Query parameters for the API call
+#  - `landing_path` (str, required): Subfolder in Raw landing zone
+#  - `log_function_id` (int, required): Lookup key in metadata.log_store
+#  - `pipeline_name` (str, optional): Pipeline name for logging
+#  - `notebook_name` (str, optional): Notebook name for logging
+#  Expected fields in `metadata.source_store`:
+#  - `source_name` (str): Human-readable source name
+#  - `base_url` (str): API base URL
+#  - `key_vault_url` (str): Azure Key Vault URL
+#  - `secret_name` (str): Secret name in Key Vault
+#  - `handler_function` (str): Ingestion handler function name (e.g., 'ingest_youtube')
 
 # CELL ********************
 
-def get_secret_from_akv()-> str: 
-    """Get API key from Azure Key Vault"""
+# Read pipeline/notebook identity from instruction metadata
+first_instr = ingestion_instructions[0] if ingestion_instructions else {}
+PIPELINE_NAME = first_instr.get("pipeline_name", "data_pipeline")
+NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-0-ingest-api")
 
-    akv_name= 'https://av01-akv-restapis-keys.vault.azure.net/' 
-    secret_name = 'data-v3-api-key'
-    
-    api_key = notebookutils.credentials.getSecret(akv_name,secret_name)
+# Shared context for cross-instruction dependencies
+# (e.g., /videos endpoint needs data from /playlistItems endpoint)
+ingestion_context = {}
 
-    return api_key
 
-api_key = get_secret_from_akv()
+def ingest_executor(spark, instr):
+    """Execute a single ingestion instruction. Returns (row_count, source_name, detail)."""
+    source_meta = source_lookup.get(instr["source_id"])
+    if not source_meta:
+        raise ValueError(f"Source ID {instr['source_id']} not found in source_store")
 
-# METADATA ********************
+    print(f"Ingesting: {source_meta['source_name']}{instr['endpoint_path']}")
 
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
+    api_key = get_api_key_from_keyvault(source_meta["key_vault_url"], source_meta["secret_name"])
+    handler_func = resolve_ingestion_handler(source_meta)
+    items = handler_func(source_meta, instr, api_key, ingestion_context)
 
-# MARKDOWN ********************
+    item_count = write_to_landing_zone(items, RAW_BASE_PATH, instr["landing_path"])
+    print(f"  -> Saved {item_count} items to {instr['landing_path']}")
 
-# #### Step 2: Get Channel Statistics
+    return (item_count, source_meta["source_name"], instr["endpoint_path"])
 
-# CELL ********************
 
-id = 'yt-channels'
+execute_pipeline_stage(
+    spark=spark,
+    instructions=ingestion_instructions,
+    stage_executor=ingest_executor,
+    notebook_name=NOTEBOOK_NAME,
+    pipeline_name=PIPELINE_NAME,
+    action_type=ACTION_INGESTION,
+    log_lookup=log_lookup
+)
 
-md = METADATA.get(id)
-
-channel_json_data = get_data_from_endpoint(md["base_url"], md["base_params"])
-
-write_json_to_location(channel_json_data, md["write_location"], id)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# MARKDOWN ********************
-
-# #### Step 3: Get Playlist Items (all videos on the channel)
-
-# CELL ********************
-
-
-def extract_uploads_playlist_id(channel_json_data): 
-    return channel_json_data.get("items")[0].get("contentDetails").get("relatedPlaylists").get("uploads")
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-print(type(channel_json_data))
-print(channel_json_data)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-print(channel_json_data.get("items"))
-print(channel_json_data.get("items")[0].get("contentDetails"))
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-playlist_id = extract_uploads_playlist_id(channel_json_data) 
-
-id = 'yt-playlistItems'
-
-md = METADATA.get(id)
-
-additional_params = f"&playlistId={playlist_id}"
-
-playlist_json_data = get_data_with_pagination(md["base_url"], md["base_params"], additional_params)
-
-write_json_to_location(playlist_json_data, md["write_location"], id)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# MARKDOWN ********************
-
-# #### Step 4: Get Video Statistics for all videos
-# 
-# First, we'll define a few helper functions for this extraction. 
-
-# CELL ********************
-
-def extract_video_ids(playlist_json): 
-    """Input: JSON from previous step (raw playlist items)
-       Output: list of video_ids
-    """
-    video_ids = [] 
-    for item in playlist_json:
-        # Primary location: contentDetails.videoId
-        video_id = item.get('contentDetails', {}).get('videoId')
-        
-        # Fallback: snippet.resourceId.videoId
-        if not video_id:
-            video_id = (item.get('snippet', {})
-                           .get('resourceId', {})
-                           .get('videoId'))
-        
-        if video_id:
-            video_ids.append(video_id)
-
-    return video_ids
-
-def get_video_stats_batched(metadata, video_ids):
-    """Batches long list of video_ids into smaller batches to get under the 
-    50 id maximum set by the API
-
-    """
-
-    all_videos = []
-    batch_size = 40
-    md = metadata 
-    
-    # Split into batches of {batch_size} 
-    for i in range(0, len(video_ids), batch_size):
-        batch = video_ids[i:i+batch_size]
-        batch_count = (i // batch_size) + 1
-        total_batches = (len(video_ids) + batch_size - 1) // batch_size
-        
-        print(f"  Processing batch {batch_count}/{total_batches}: {len(batch)} videos...")
-        
-        # Convert list to comma-separated string
-        additional_params = f"&id={','.join(batch)}"
-
-        results = get_data_from_endpoint(md["base_url"], md["base_params"], additional_params)
-                
-        all_videos.extend(results["items"])
-    
-    print(f"Extracted stats for {len(all_videos)} videos")
-    return  all_videos
-
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-# Hent channel data
-id = 'yt-videos'
-
-md = METADATA.get(id)
-
-video_ids = extract_video_ids(playlist_json_data)
-
-video_json_data = get_video_stats_batched(md, video_ids)
-
-write_json_to_location(video_json_data, md["write_location"], id)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-
-id = 'yt-videos'
-
-md = METADATA.get(id)
-
-video_ids = extract_video_ids(playlist_json_data)
-
-video_json_data = get_video_stats_batched(md, video_ids)
-
-write_json_to_location(video_json_data, md["write_location"], id)
 
 # METADATA ********************
 
