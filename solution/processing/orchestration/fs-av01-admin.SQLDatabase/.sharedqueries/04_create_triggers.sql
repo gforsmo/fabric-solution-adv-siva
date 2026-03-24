@@ -6,7 +6,6 @@
 --
 -- Run order: Fourth - after 03_create_indexes.sql
 -- Can be run multiple times safely (idempotent)
--- Uses CREATE OR ALTER TRIGGER syntax.
 --
 -- Triggers created:
 --   metadata.source_store      - trg_source_store_audit
@@ -21,51 +20,65 @@
 --   instructions.validations   - trg_validations_audit
 -- ============================================
 
+-- ============================================
+-- Drop existing triggers
+-- ============================================
+DROP TRIGGER IF EXISTS [metadata].[trg_source_store_audit]
+GO
+DROP TRIGGER IF EXISTS [metadata].[trg_loading_store_audit]
+GO
+DROP TRIGGER IF EXISTS [metadata].[trg_transform_store_audit]
+GO
+DROP TRIGGER IF EXISTS [metadata].[trg_expectation_store_audit]
+GO
+DROP TRIGGER IF EXISTS [metadata].[trg_log_store_audit]
+GO
+DROP TRIGGER IF EXISTS [metadata].[trg_column_mappings_audit]
+GO
+DROP TRIGGER IF EXISTS [instructions].[trg_ingestion_audit]
+GO
+DROP TRIGGER IF EXISTS [instructions].[trg_loading_audit]
+GO
+DROP TRIGGER IF EXISTS [instructions].[trg_transformations_audit]
+GO
+DROP TRIGGER IF EXISTS [instructions].[trg_validations_audit]
+GO
+
+-- ============================================
+-- Create triggers
+-- ============================================
+
 -- Trigger for metadata.source_store
-CREATE OR ALTER TRIGGER trg_source_store_audit
+CREATE TRIGGER [metadata].[trg_source_store_audit]
 ON metadata.source_store
 AFTER INSERT, UPDATE, DELETE
 AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Handle INSERTs
     INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.source_store',
-        i.source_id,
-        'insert',
-        NULL,
+    SELECT 'metadata.source_store', i.source_id, 'insert', NULL,
         (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
     FROM inserted i
     WHERE NOT EXISTS (SELECT 1 FROM deleted d WHERE d.source_id = i.source_id);
 
-    -- Handle UPDATEs
     INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.source_store',
-        i.source_id,
-        'update',
+    SELECT 'metadata.source_store', i.source_id, 'update',
         (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
         (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
     FROM inserted i
     INNER JOIN deleted d ON i.source_id = d.source_id;
 
-    -- Handle DELETEs
     INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.source_store',
-        d.source_id,
-        'delete',
-        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
-        NULL
+    SELECT 'metadata.source_store', d.source_id, 'delete',
+        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER), NULL
     FROM deleted d
     WHERE NOT EXISTS (SELECT 1 FROM inserted i WHERE i.source_id = d.source_id);
 END;
 GO
 
 -- Trigger for metadata.loading_store
-CREATE OR ALTER TRIGGER trg_loading_store_audit
+CREATE TRIGGER [metadata].[trg_loading_store_audit]
 ON metadata.loading_store
 AFTER INSERT, UPDATE, DELETE
 AS
@@ -94,7 +107,7 @@ END;
 GO
 
 -- Trigger for metadata.transform_store
-CREATE OR ALTER TRIGGER trg_transform_store_audit
+CREATE TRIGGER [metadata].[trg_transform_store_audit]
 ON metadata.transform_store
 AFTER INSERT, UPDATE, DELETE
 AS
@@ -123,7 +136,7 @@ END;
 GO
 
 -- Trigger for metadata.expectation_store
-CREATE OR ALTER TRIGGER trg_expectation_store_audit
+CREATE TRIGGER [metadata].[trg_expectation_store_audit]
 ON metadata.expectation_store
 AFTER INSERT, UPDATE, DELETE
 AS
@@ -152,7 +165,7 @@ END;
 GO
 
 -- Trigger for metadata.log_store
-CREATE OR ALTER TRIGGER trg_log_store_audit
+CREATE TRIGGER [metadata].[trg_log_store_audit]
 ON metadata.log_store
 AFTER INSERT, UPDATE, DELETE
 AS
@@ -180,8 +193,43 @@ BEGIN
 END;
 GO
 
+-- Trigger for metadata.column_mappings
+CREATE TRIGGER [metadata].[trg_column_mappings_audit]
+ON metadata.column_mappings
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
+    SELECT 'metadata.column_mappings', 0, 'insert', NULL,
+        (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+    FROM inserted i
+    WHERE NOT EXISTS (
+        SELECT 1 FROM deleted d
+        WHERE d.mapping_id = i.mapping_id AND d.column_order = i.column_order
+    );
+
+    INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
+    SELECT 'metadata.column_mappings', 0, 'update',
+        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
+        (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+    FROM inserted i
+    INNER JOIN deleted d ON i.mapping_id = d.mapping_id AND i.column_order = d.column_order;
+
+    INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
+    SELECT 'metadata.column_mappings', 0, 'delete',
+        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER), NULL
+    FROM deleted d
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inserted i
+        WHERE i.mapping_id = d.mapping_id AND i.column_order = d.column_order
+    );
+END;
+GO
+
 -- Trigger for instructions.ingestion
-CREATE OR ALTER TRIGGER trg_ingestion_audit
+CREATE TRIGGER [instructions].[trg_ingestion_audit]
 ON instructions.ingestion
 AFTER INSERT, UPDATE, DELETE
 AS
@@ -210,7 +258,7 @@ END;
 GO
 
 -- Trigger for instructions.loading
-CREATE OR ALTER TRIGGER trg_loading_audit
+CREATE TRIGGER [instructions].[trg_loading_audit]
 ON instructions.loading
 AFTER INSERT, UPDATE, DELETE
 AS
@@ -239,7 +287,7 @@ END;
 GO
 
 -- Trigger for instructions.transformations
-CREATE OR ALTER TRIGGER trg_transformations_audit
+CREATE TRIGGER [instructions].[trg_transformations_audit]
 ON instructions.transformations
 AFTER INSERT, UPDATE, DELETE
 AS
@@ -268,7 +316,7 @@ END;
 GO
 
 -- Trigger for instructions.validations
-CREATE OR ALTER TRIGGER trg_validations_audit
+CREATE TRIGGER [instructions].[trg_validations_audit]
 ON instructions.validations
 AFTER INSERT, UPDATE, DELETE
 AS
@@ -293,54 +341,5 @@ BEGIN
         (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER), NULL
     FROM deleted d
     WHERE NOT EXISTS (SELECT 1 FROM inserted i WHERE i.validation_instr_id = d.validation_instr_id);
-END;
-GO
-
--- Trigger for metadata.column_mappings
-CREATE OR ALTER TRIGGER trg_column_mappings_audit
-ON metadata.column_mappings
-AFTER INSERT, UPDATE, DELETE
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    -- Handle INSERTs
-    INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.column_mappings',
-        0,  -- No single record_id for composite key
-        'insert',
-        NULL,
-        (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
-    FROM inserted i
-    WHERE NOT EXISTS (
-        SELECT 1 FROM deleted d
-        WHERE d.mapping_id = i.mapping_id AND d.column_order = i.column_order
-    );
-
-    -- Handle UPDATEs
-    INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.column_mappings',
-        0,
-        'update',
-        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
-        (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
-    FROM inserted i
-    INNER JOIN deleted d ON i.mapping_id = d.mapping_id AND i.column_order = d.column_order;
-
-    -- Handle DELETEs
-    INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.column_mappings',
-        0,
-        'delete',
-        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
-        NULL
-    FROM deleted d
-    WHERE NOT EXISTS (
-        SELECT 1 FROM inserted i
-        WHERE i.mapping_id = d.mapping_id AND i.column_order = d.column_order
-    );
 END;
 GO
