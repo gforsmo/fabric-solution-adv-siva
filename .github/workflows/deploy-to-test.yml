@@ -1,5 +1,7 @@
 name: Deploy to TEST Environment
 
+# Manual trigger for TEST deployment using fabric-cicd.
+# Resumes capacities before deployment and suspends after (cost optimization).
 on:
   workflow_dispatch:
     inputs:
@@ -24,6 +26,7 @@ jobs:
     name: Deploy to TEST
     runs-on: windows-latest
 
+    # Common environment variables for all steps
     env:
       AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.SPN_CLIENT_SECRET }}
