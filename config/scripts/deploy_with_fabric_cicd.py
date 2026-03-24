@@ -131,7 +131,7 @@ def main():
                         help='Deploy all workspace types in order')
     parser.add_argument('--no-cleanup', action='store_true',
                         help='Skip orphan item cleanup')
-    parser.add_argument('--config', '-c', default='config/templates/v01/v01-template.yml',
+    parser.add_argument('--config', '-c', default='config/v01/v01-template.yml',
                         help='Path to configuration file')
 
     args = parser.parse_args()
