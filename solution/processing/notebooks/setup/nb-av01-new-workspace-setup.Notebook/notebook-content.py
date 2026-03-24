@@ -55,7 +55,7 @@ if init_lakehouses == True:
 notebookutils.notebook.run("nb-av01-publish-environment", 300)
 
 # Step 3: Init SQL Metadata Database
-if init_lakehouses == True:
+if init_metadata_sql == True:
     notebookutils.notebook.run("nb-av01-init-sql-database", 300)
 
 # Step 4: Run full ETL pipeline notebook

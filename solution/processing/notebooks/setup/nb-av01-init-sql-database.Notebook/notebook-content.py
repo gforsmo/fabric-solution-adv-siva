@@ -6,12 +6,7 @@
 # META   "kernel_info": {
 # META     "name": "synapse_pyspark"
 # META   },
-# META   "dependencies": {
-# META     "environment": {
-# META       "environmentId": "1765cc0e-0b76-b9b7-4466-6b06460f318e",
-# META       "workspaceId": "00000000-0000-0000-0000-000000000000"
-# META     }
-# META   }
+# META   "dependencies": {}
 # META }
 
 # MARKDOWN ********************
@@ -492,7 +487,6 @@ def write_seed_table(table_name: str, schema: StructType, data: list) -> int:
     print(f"  Wrote {len(data)} rows to {table_name}")
     return len(data)
 
-
 '''
 def table_has_data(table_name: str) -> bool:
     """Check if a table already has data."""
@@ -543,6 +537,61 @@ print("Tilkobling OK")
 
 if table_has_data("metadata.log_store"):
     print("Seed data already exists - skipping seeding")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# Check if data already exists (use metadata.log_store as indicator)
+if table_has_data("metadata.log_store"):
+    print("Seed data already exists - skipping seeding")
+else:
+    # Seed instruction tables
+    instr_rows = 0
+    instr_rows += write_seed_table("instructions.ingestion", ingestion_schema, ingestion_data)
+    instr_rows += write_seed_table("instructions.loading", loading_schema, loading_data)
+    instr_rows += write_seed_table("instructions.transformations", transformations_schema, transformations_data)
+    instr_rows += write_seed_table("instructions.validations", validations_schema, validations_data)
+
+    # Seed metadata store tables
+    total_rows = 0
+    total_rows += write_seed_table("metadata.log_store", log_store_schema, log_store_data)
+    total_rows += write_seed_table("metadata.source_store", source_store_schema, source_store_data)
+    total_rows += write_seed_table("metadata.loading_store", loading_store_schema, loading_store_data)
+    total_rows += write_seed_table("metadata.transform_store", transform_store_schema, transform_store_data)
+    total_rows += write_seed_table("metadata.expectation_store", expectation_store_schema, expectation_store_data)
+    total_rows += write_seed_table("metadata.column_mappings", column_mappings_schema, column_mappings_data)
+
+    print(f"Seeded {instr_rows} instruction rows and {total_rows} metadata rows")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# Sjekk om tabellene eksisterer
+tables_to_check = [
+    "metadata.log_store",
+    "metadata.source_store", 
+    "instructions.ingestion"
+]
+
+for table in tables_to_check:
+    try:
+        df = spark.read.option("url", METADATA_DB_URL).mssql(table)
+        count = df.count()
+        print(f"✓ {table}: {count} rader")
+    except Exception as e:
+        print(f"✗ {table}: {e}")
 
 # METADATA ********************
 

@@ -5,7 +5,7 @@
       "name": "LH_WORKSPACE_NAME",
       "note": "",
       "type": "String",
-      "value": "av01-feature_walkthrough-datastores"
+      "value": "av01-dev-datastores"
     },
     {
       "name": "BRONZE_LH_NAME",
@@ -41,13 +41,13 @@
       "name": "PROCESSING_WORKSPACE_ID",
       "note": "",
       "type": "String",
-      "value": "d66edab7-234b-40b2-9cb2-9501f0bacfe4"
+      "value": "8d6fe005-dd55-4de6-bc78-c7916a246676"
     },
     {
       "name": "ENVIRONMENT_ID",
       "note": "",
       "type": "String",
-      "value": "9bba1438-12bb-47e3-baa2-63b8fd2497b1"
+      "value": "0334e600-cf3d-4d3c-9ddf-1387df6b72cd"
     },
     {
       "name": "ENVIRONMENT_NAME",

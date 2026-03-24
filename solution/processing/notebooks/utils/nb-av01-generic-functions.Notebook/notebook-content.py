@@ -126,9 +126,9 @@ def set_metadata_db_url(server: str, database: str):
     """
     global METADATA_DB_URL
     # Fabric SQL Database format - note curly braces around database name
-    METADATA_DB_URL = f"jdbc:sqlserver://{server}.database.fabric.microsoft.com:1433;database={{{database}}};encrypt=true;trustServerCertificate=false"
+    #METADATA_DB_URL = f"jdbc:sqlserver://{server}.database.fabric.microsoft.com:1433;database={{{database}}};encrypt=true;trustServerCertificate=false"
 
-
+    METADATA_DB_URL = f"jdbc:sqlserver://{server}.database.fabric.microsoft.com:1433;database={database};encrypt=true;trustServerCertificate=false"
 
 # METADATA ********************
 
