@@ -109,6 +109,7 @@ PIPELINE_NAME = first_instr.get("pipeline_name", "data_pipeline")
 NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-2-clean")
 
 
+
 def clean_executor(spark, instr):
     """Execute a single clean/transform instruction. Returns (row_count, source_name, detail)."""
     source_path = BRONZE_BASE_PATH + instr["source_table"]
@@ -117,6 +118,7 @@ def clean_executor(spark, instr):
     print(f"Transforming: {instr['source_table']} -> {instr['dest_table']}")
 
     df = spark.read.format("delta").load(source_path)
+   
 
     # Parse transform pipeline (ordered list of transform_ids) and params
     pipeline = json.loads(instr["transform_pipeline"])

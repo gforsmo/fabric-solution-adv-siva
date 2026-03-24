@@ -25,35 +25,6 @@
 
 # CELL ********************
 
-import notebookutils 
-import requests 
-from datetime import datetime
-import os
-import json
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# PARAMETERS CELL ********************
-
-# Parameters - passed via REST API execution
-spn_tenant_id = ""
-spn_client_id = ""
-spn_client_secret = ""
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
 %run nb-av01-generic-functions
 
 # METADATA ********************
@@ -77,6 +48,20 @@ spn_client_secret = ""
 # MARKDOWN ********************
 
 # ## Configuration
+
+# CELL ********************
+
+# Parameters - passed via REST API execution
+spn_tenant_id = ""
+spn_client_id = ""
+spn_client_secret = ""
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
 
 # CELL ********************
 
@@ -129,17 +114,6 @@ ingestion_instructions = get_active_instructions(spark, "ingestion")
 
 df = spark.read.option("url", METADATA_DB_URL).mssql("metadata.source_store")
 df.printSchema()  
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-print(source_lookup)
 
 # METADATA ********************
 
