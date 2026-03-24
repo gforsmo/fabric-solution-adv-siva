@@ -29,13 +29,13 @@
       "name": "METADATA_SERVER",
       "note": "",
       "type": "String",
-      "value": "qdk4d5jdihvellkm2wjw25c6f4-axqg7dkv3xte3pdyy6iwujdgoy"
+      "value": "qdk4d5jdihvellkm2wjw25c6f4-w7ng5vsleozebhfssua7bowp4q"
     },
     {
       "name": "METADATA_DB",
       "note": "",
       "type": "String",
-      "value": "fs-av01-admin-d1f3e35e-eae6-48af-88d7-6a9f65679c8c"
+      "value": "fs-av01-admin-f27d0988-6bfa-414f-bb0e-8da014306e82"
     },
     {
       "name": "PROCESSING_WORKSPACE_ID",
@@ -47,7 +47,7 @@
       "name": "ENVIRONMENT_ID",
       "note": "",
       "type": "String",
-      "value": "9bba1438-12bb-47e3-baa2-63b8fd2497b1"
+      "value": "17f6a4bc-65b9-4b74-bec4-1bf7e4cc9ade"
     },
     {
       "name": "ENVIRONMENT_NAME",

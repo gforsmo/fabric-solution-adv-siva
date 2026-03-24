@@ -13,8 +13,11 @@
 
 # # nb-av01-4-validate
 # **Purpose**: Run Great Expectations validations on Gold layer tables.
+# 
 # **Stage**: Gold (validation only)
+# 
 # **Dependencies**: nb-av01-generic-functions
+# 
 # **Metadata**: instructions.validations, metadata.expectation_store
 
 

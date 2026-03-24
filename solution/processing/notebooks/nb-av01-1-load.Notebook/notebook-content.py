@@ -84,6 +84,28 @@ loading_instructions = get_active_instructions(spark, "loading", layer="bronze")
 # META   "language_group": "synapse_pyspark"
 # META }
 
+# CELL ********************
+
+print(loading_lookup)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+print(loading_instructions)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
 # MARKDOWN ********************
 
 # ## Execute Loading

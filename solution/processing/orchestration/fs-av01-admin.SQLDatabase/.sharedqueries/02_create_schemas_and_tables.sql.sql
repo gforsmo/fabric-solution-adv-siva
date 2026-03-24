@@ -1,4 +1,31 @@
-
+-- ============================================
+-- 02_create_schemas_and_tables.sql
+-- Create all schemas and tables for the
+-- metadata and instructions database.
+--
+-- Run order: Second - after 01_reset_database.sql
+-- Can be run multiple times safely (idempotent)
+--
+-- Schemas created:
+--   metadata    - Source registry, function catalogs
+--   instructions - Pipeline runtime instructions
+--   log         - Execution history and audit trail
+--
+-- Tables created:
+--   metadata.source_store
+--   metadata.loading_store
+--   metadata.transform_store
+--   metadata.expectation_store
+--   metadata.log_store
+--   metadata.column_mappings
+--   instructions.ingestion
+--   instructions.loading
+--   instructions.transformations
+--   instructions.validations
+--   log.pipeline_runs
+--   log.validation_results
+--   log.metadata_changes
+-- ============================================
 IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'metadata')
     EXEC('CREATE SCHEMA metadata');
 GO
@@ -22,6 +49,7 @@ CREATE TABLE metadata.source_store (
     secret_name         VARCHAR(100),                   -- Secret name in AKV
     base_url            VARCHAR(500),                   -- Base URL for APIs
     description         VARCHAR(1000),
+   -- handler_function    VARCHAR(100), 
     created_date        DATETIME2 DEFAULT GETDATE(),
     modified_date       DATETIME2 DEFAULT GETDATE()
 );
@@ -110,6 +138,8 @@ CREATE TABLE instructions.loading (
     merge_columns       JSON,                           -- Specific columns if merge_type = 'specific_columns'
     is_active           BIT DEFAULT 1,
     log_function_id     INT,
+    --pipeline_name       VARCHAR(100),
+    --notebook_name       VARCHAR(100),
     created_date        DATETIME2 DEFAULT GETDATE(),
     modified_date       DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_loading_store FOREIGN KEY (loading_id)
@@ -133,6 +163,8 @@ CREATE TABLE instructions.transformations (
     merge_columns       JSON,
     is_active           BIT DEFAULT 1,
     log_function_id     INT,
+    --pipeline_name       VARCHAR(100),
+    --notebook_name       VARCHAR(100),
     created_date        DATETIME2 DEFAULT GETDATE(),
     modified_date       DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_transform_log FOREIGN KEY (log_function_id)
@@ -151,6 +183,8 @@ CREATE TABLE instructions.validations (
     severity            VARCHAR(20) DEFAULT 'error',    -- 'error', 'warning'
     is_active           BIT DEFAULT 1,
     log_function_id     INT,
+    --pipeline_name       VARCHAR(100),
+    --notebook_name       VARCHAR(100),
     created_date        DATETIME2 DEFAULT GETDATE(),
     modified_date       DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_validation_expectation FOREIGN KEY (expectation_id)

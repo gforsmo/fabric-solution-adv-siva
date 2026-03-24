@@ -1,3 +1,25 @@
+-- ============================================
+-- 04_create_triggers.sql
+-- Create audit triggers for all metadata and
+-- instructions tables. All changes are logged
+-- to log.metadata_changes.
+--
+-- Run order: Fourth - after 03_create_indexes.sql
+-- Can be run multiple times safely (idempotent)
+-- Uses CREATE OR ALTER TRIGGER syntax.
+--
+-- Triggers created:
+--   metadata.source_store      - trg_source_store_audit
+--   metadata.loading_store     - trg_loading_store_audit
+--   metadata.transform_store   - trg_transform_store_audit
+--   metadata.expectation_store - trg_expectation_store_audit
+--   metadata.log_store         - trg_log_store_audit
+--   metadata.column_mappings   - trg_column_mappings_audit
+--   instructions.ingestion     - trg_ingestion_audit
+--   instructions.loading       - trg_loading_audit
+--   instructions.transformations - trg_transformations_audit
+--   instructions.validations   - trg_validations_audit
+-- ============================================
 
 -- Trigger for metadata.source_store
 CREATE OR ALTER TRIGGER trg_source_store_audit

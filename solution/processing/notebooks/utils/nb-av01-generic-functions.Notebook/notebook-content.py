@@ -376,6 +376,7 @@ def log_standard(spark, pipeline_name: str, notebook_name: str, status: str,
 
     log_data = [(0, pipeline_name, started_at, completed_at, status, rows_processed,
                  error_message, action_type, source_name, instruction_detail, notebook_name)]
+    
     log_df = spark.createDataFrame(log_data, schema)
 
     log_df.write.mode("append").option("url", METADATA_DB_URL).mssql("log.pipeline_runs")

@@ -1,11 +1,30 @@
--- ============================================================================
--- PRJ106 Metadata Framework - Seed Initial Data
--- ============================================================================
--- This script populates the metadata store with data based on the actual
--- intermediate project notebooks (nb-int-0 through nb-int-4).
+-- ============================================
+-- 07_seed_initial_metadata.sql
+-- Seed initial data for all metadata and
+-- instructions tables.
 --
--- Run this AFTER 01_create_schemas_and_tables.sql
--- ============================================================================
+-- Run order: Seventh - after 06_migrate_add_handler_and_pipeline_columns.sql
+-- WARNING: This script inserts data - ensure
+-- tables are empty before running to avoid
+-- duplicate key violations.
+--
+-- Data seeded:
+--   Step 1:  metadata.log_store          - 2 logging functions
+--   Step 2:  metadata.source_store       - 1 source (YouTube API)
+--   Step 3:  metadata.loading_store      - 1 loading function
+--   Step 4:  metadata.transform_store    - 6 transform functions
+--   Step 5:  metadata.expectation_store  - 6 GX expectations
+--   Step 6:  instructions.ingestion      - 3 ingestion instructions
+--   Step 7:  instructions.loading        - 3 loading instructions
+--   Step 8:  instructions.transformations - 3 Bronze->Silver transforms
+--   Step 9:  instructions.transformations - 3 Silver->Gold transforms
+--   Step 10: instructions.validations    - 7 validation instructions
+--   Step 11: metadata.column_mappings    - 19 column mappings
+--                                          (channels, playlist_items, videos)
+--
+-- Source: Based on actual intermediate project
+-- notebooks nb-int-0 through nb-int-4.
+-- ============================================
 
 -- ============================================================================
 -- STEP 1: SEED LOGGING FUNCTIONS
@@ -26,7 +45,7 @@ GO
 INSERT INTO metadata.source_store (source_id, source_name, source_type, auth_method, key_vault_url, secret_name, base_url, handler_function, description)
 VALUES
 (1, 'youtube_api', 'rest_api', 'api_key',
-    'https://av01-akv-restapi-keys.vault.azure.net/',
+    'https://av01-akv-restapis-keys.vault.azure.net/',
     'data-v3-api-key',
     'https://www.googleapis.com/youtube/v3',
     'ingest_youtube',
@@ -127,7 +146,8 @@ GO
 -- ============================================================================
 -- From nb-int-1-load-youtube.ipynb
 
-INSERT INTO instructions.loading (loading_instr_id, loading_id, source_path, source_layer, target_table, target_layer, key_columns, load_params, merge_condition, merge_type, merge_columns, is_active, log_function_id, pipeline_name, notebook_name)
+INSERT INTO instructions.loading (loading_instr_id, loading_id, source_path, source_layer, target_table, target_layer, 
+key_columns, load_params, merge_condition, merge_type, merge_columns, is_active, log_function_id, pipeline_name, notebook_name)
 VALUES
 -- Channel: merge on channel_id + date
 (1, 1, 'Files/youtube_data_v3/channels/', 'raw', 'youtube/channel', 'bronze',

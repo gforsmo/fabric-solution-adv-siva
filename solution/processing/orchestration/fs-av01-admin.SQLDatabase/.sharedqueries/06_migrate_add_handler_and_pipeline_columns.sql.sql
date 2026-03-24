@@ -1,21 +1,26 @@
-
--- ============================================================================
--- Migration: Add handler_function, pipeline_name, notebook_name columns
--- ============================================================================
--- Run this on existing DEV, TEST, and PROD databases to align with the
--- refactored notebook code (feature-repo-tidy branch).
+-- ============================================
+-- 06_migrate_add_handler_and_pipeline_columns.sql
+-- Migration: Add handler_function, pipeline_name
+-- and notebook_name columns to existing tables.
+--
+-- Run order: Sixth - after 05_create_users_and_security.sql
+-- Can be run multiple times safely (idempotent)
+-- Uses IF NOT EXISTS / conditional checks.
 --
 -- Changes:
---   1. metadata.source_store: Add handler_function column
---   2. instructions.ingestion: Add pipeline_name, notebook_name columns
---   3. instructions.loading: Add pipeline_name, notebook_name columns;
---      make merge_type NOT NULL
---   4. instructions.transformations: Add pipeline_name, notebook_name columns;
---      make merge_type NOT NULL
---   5. instructions.validations: Add pipeline_name, notebook_name columns
+--   1. metadata.source_store      - Add handler_function
+--   2. instructions.ingestion     - Add pipeline_name, notebook_name
+--   3. instructions.loading       - Add pipeline_name, notebook_name;
+--                                   make merge_type NOT NULL
+--   4. instructions.transformations - Add pipeline_name, notebook_name;
+--                                   make merge_type NOT NULL
+--   5. instructions.validations   - Add pipeline_name, notebook_name
 --
--- Safe to re-run (uses IF NOT EXISTS / conditional checks).
--- ============================================================================
+-- Note: Run this on existing DEV, TEST, and PROD
+-- databases to align with refactored notebook code.
+-- ============================================
+
+
 
 -- ============================================================================
 -- 1. metadata.source_store: Add handler_function
