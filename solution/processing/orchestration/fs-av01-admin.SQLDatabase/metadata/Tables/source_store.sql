@@ -17,44 +17,34 @@ CREATE TABLE [metadata].[source_store] (
 GO
 
 
+-- ============================================
+-- Create triggers
+-- ============================================
+
 -- Trigger for metadata.source_store
-CREATE   TRIGGER [metadata].trg_source_store_audit
+CREATE TRIGGER [metadata].[trg_source_store_audit]
 ON metadata.source_store
 AFTER INSERT, UPDATE, DELETE
 AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Handle INSERTs
     INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.source_store',
-        i.source_id,
-        'insert',
-        NULL,
+    SELECT 'metadata.source_store', i.source_id, 'insert', NULL,
         (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
     FROM inserted i
     WHERE NOT EXISTS (SELECT 1 FROM deleted d WHERE d.source_id = i.source_id);
 
-    -- Handle UPDATEs
     INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.source_store',
-        i.source_id,
-        'update',
+    SELECT 'metadata.source_store', i.source_id, 'update',
         (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
         (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
     FROM inserted i
     INNER JOIN deleted d ON i.source_id = d.source_id;
 
-    -- Handle DELETEs
     INSERT INTO log.metadata_changes (table_name, record_id, change_type, old_values, new_values)
-    SELECT
-        'metadata.source_store',
-        d.source_id,
-        'delete',
-        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
-        NULL
+    SELECT 'metadata.source_store', d.source_id, 'delete',
+        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER), NULL
     FROM deleted d
     WHERE NOT EXISTS (SELECT 1 FROM inserted i WHERE i.source_id = d.source_id);
 END;

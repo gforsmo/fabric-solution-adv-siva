@@ -11,7 +11,7 @@ GO
 
 
 -- Trigger for metadata.loading_store
-CREATE   TRIGGER [metadata].trg_loading_store_audit
+CREATE TRIGGER [metadata].[trg_loading_store_audit]
 ON metadata.loading_store
 AFTER INSERT, UPDATE, DELETE
 AS
