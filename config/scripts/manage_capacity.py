@@ -10,6 +10,7 @@ Usage:
     python manage_capacity.py --environment TEST --action resume --wait
 """
 
+from html import parser
 import os
 import sys
 import time
@@ -219,7 +220,7 @@ Examples:
                         help='Filter capacities to those used by these workspace types (e.g., processing datastores)')
     parser.add_argument('--config', '-c', default='config/v01/v01-template.yml',
                         help='Path to solution template configuration file')
-
+   
     args = parser.parse_args()
 
     bootstrap()
