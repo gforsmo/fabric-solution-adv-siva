@@ -217,7 +217,7 @@ Examples:
                         help='Wait for capacities to reach target state (resume only)')
     parser.add_argument('--workspace-type', nargs='+', default=None,
                         help='Filter capacities to those used by these workspace types (e.g., processing datastores)')
-    parser.add_argument('--config', '-c', default='config/templates/v01/v01-template.yml',
+    parser.add_argument('--config', '-c', default='config/v01/v01-template.yml',
                         help='Path to solution template configuration file')
 
     args = parser.parse_args()
