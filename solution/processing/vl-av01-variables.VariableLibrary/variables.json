@@ -5,7 +5,7 @@
       "name": "LH_WORKSPACE_NAME",
       "note": "",
       "type": "String",
-      "value": "av01-feature-sprint6-metadata-datastores"
+      "value": "av01-feature_walkthrough-datastores"
     },
     {
       "name": "BRONZE_LH_NAME",
@@ -29,25 +29,25 @@
       "name": "METADATA_SERVER",
       "note": "",
       "type": "String",
-      "value": ""
+      "value": "qdk4d5jdihvellkm2wjw25c6f4-axqg7dkv3xte3pdyy6iwujdgoy"
     },
     {
       "name": "METADATA_DB",
       "note": "",
       "type": "String",
-      "value": ""
+      "value": "fs-av01-admin-d1f3e35e-eae6-48af-88d7-6a9f65679c8c"
     },
     {
       "name": "PROCESSING_WORKSPACE_ID",
       "note": "",
       "type": "String",
-      "value": ""
+      "value": "d66edab7-234b-40b2-9cb2-9501f0bacfe4"
     },
     {
       "name": "ENVIRONMENT_ID",
       "note": "",
       "type": "String",
-      "value": ""
+      "value": "9bba1438-12bb-47e3-baa2-63b8fd2497b1"
     },
     {
       "name": "ENVIRONMENT_NAME",

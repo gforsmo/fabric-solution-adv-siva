@@ -6,7 +6,12 @@
 # META   "kernel_info": {
 # META     "name": "synapse_pyspark"
 # META   },
-# META   "dependencies": {}
+# META   "dependencies": {
+# META     "environment": {
+# META       "environmentId": "1765cc0e-0b76-b9b7-4466-6b06460f318e",
+# META       "workspaceId": "00000000-0000-0000-0000-000000000000"
+# META     }
+# META   }
 # META }
 
 # MARKDOWN ********************
@@ -60,6 +65,20 @@ set_metadata_db_url(
     server=variables.METADATA_SERVER,
     database=variables.METADATA_DB
 )
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+print(f"METADATA_SERVER: '{variables.METADATA_SERVER}'")
+print(f"METADATA_DB: '{variables.METADATA_DB}'")
+
+print(f"METADATA_DB_URL: '{METADATA_DB_URL}'")
 
 # METADATA ********************
 
@@ -474,11 +493,56 @@ def write_seed_table(table_name: str, schema: StructType, data: list) -> int:
     return len(data)
 
 
+'''
 def table_has_data(table_name: str) -> bool:
     """Check if a table already has data."""
     df = spark.read.option("url", METADATA_DB_URL).mssql(table_name)
     return df.count() > 0
+'''
+def table_has_data(table_name: str) -> bool:
+    try:
+        df = spark.read.option("url", METADATA_DB_URL).mssql(table_name)
+        return df.count() > 0
+    except Exception:
+        return False
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+spark.read.option("url", METADATA_DB_URL).mssql("INFORMATION_SCHEMA.TABLES").show(100, False)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# Test skriving
+test_data = [("test", 1)]
+test_df = spark.createDataFrame(test_data, ["name", "value"])
+test_df.write.mode("append").option("url", METADATA_DB_URL).mssql("dbo.test_table")
+print("Tilkobling OK")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+if table_has_data("metadata.log_store"):
+    print("Seed data already exists - skipping seeding")
 
 # METADATA ********************
 
