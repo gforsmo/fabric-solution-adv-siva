@@ -26,6 +26,7 @@
 --   log.validation_results
 --   log.metadata_changes
 -- ============================================
+
 IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'metadata')
     EXEC('CREATE SCHEMA metadata');
 GO
@@ -38,80 +39,85 @@ IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'log')
     EXEC('CREATE SCHEMA log');
 GO
 
+-- ============================================
+-- metadata tables
+-- ============================================
 
--- Source Store: Registry of all data sources and their authentication details
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'source_store')
 CREATE TABLE metadata.source_store (
     source_id           INT PRIMARY KEY,
-    source_name         VARCHAR(100) NOT NULL,          -- 'youtube_api', 'github_api'
-    source_type         VARCHAR(50) NOT NULL,           -- 'rest_api', 'file', 'database'
-    auth_method         VARCHAR(50),                    -- 'api_key', 'oauth', 'connection_string'
-    key_vault_url       VARCHAR(500),                   -- AKV URL
-    secret_name         VARCHAR(100),                   -- Secret name in AKV
-    base_url            VARCHAR(500),                   -- Base URL for APIs
+    source_name         VARCHAR(100) NOT NULL,
+    source_type         VARCHAR(50) NOT NULL,
+    auth_method         VARCHAR(50),
+    key_vault_url       VARCHAR(500),
+    secret_name         VARCHAR(100),
+    base_url            VARCHAR(500),
     description         VARCHAR(1000),
-   -- handler_function    VARCHAR(100), 
     created_date        DATETIME2 DEFAULT GETDATE(),
     modified_date       DATETIME2 DEFAULT GETDATE()
 );
 GO
 
--- Loading Store: Catalog of available loading functions
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'loading_store')
 CREATE TABLE metadata.loading_store (
     loading_id          INT PRIMARY KEY,
-    function_name       VARCHAR(100) NOT NULL,          -- 'load_json_to_delta', 'load_parquet_to_delta'
-    description         VARCHAR(1000),                  -- When to use this function
-    expected_params     JSON                            -- Parameters the function expects
-);
-GO
-
--- Transform Store: Catalog of available transform functions
-CREATE TABLE metadata.transform_store (
-    transform_id        INT PRIMARY KEY,
-    function_name       VARCHAR(100) NOT NULL,          -- 'dedupe_by_window', 'filter_nulls', 'generate_surrogate_key'
-    description         VARCHAR(1000),                  -- When to use this function
-    expected_params     JSON                            -- Parameters the function expects
-);
-GO
-
--- Expectation Store: Catalog of available GX expectations
-CREATE TABLE metadata.expectation_store (
-    expectation_id      INT PRIMARY KEY,
-    expectation_name    VARCHAR(100) NOT NULL,          -- 'not_null', 'unique', 'value_range'
-    gx_method           VARCHAR(100) NOT NULL,          -- Actual GX method name
-    description         VARCHAR(1000),
-    expected_params     JSON                            -- Parameters the expectation expects
-);
-GO
-
--- Log Store: Catalog of available logging functions
-CREATE TABLE metadata.log_store (
-    log_id              INT PRIMARY KEY,
-    function_name       VARCHAR(100) NOT NULL,          -- 'log_standard', 'log_verbose', 'log_minimal'
+    function_name       VARCHAR(100) NOT NULL,
     description         VARCHAR(1000),
     expected_params     JSON
 );
 GO
 
--- Column Mappings Store: Maps source JSON paths to target Delta columns
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'transform_store')
+CREATE TABLE metadata.transform_store (
+    transform_id        INT PRIMARY KEY,
+    function_name       VARCHAR(100) NOT NULL,
+    description         VARCHAR(1000),
+    expected_params     JSON
+);
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'expectation_store')
+CREATE TABLE metadata.expectation_store (
+    expectation_id      INT PRIMARY KEY,
+    expectation_name    VARCHAR(100) NOT NULL,
+    gx_method           VARCHAR(100) NOT NULL,
+    description         VARCHAR(1000),
+    expected_params     JSON
+);
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'log_store')
+CREATE TABLE metadata.log_store (
+    log_id              INT PRIMARY KEY,
+    function_name       VARCHAR(100) NOT NULL,
+    description         VARCHAR(1000),
+    expected_params     JSON
+);
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'column_mappings')
 CREATE TABLE metadata.column_mappings (
-    mapping_id          VARCHAR(100) NOT NULL,          -- e.g., 'youtube_channels', 'salesforce_accounts'
-    column_order        INT NOT NULL,                   -- Order of columns (1, 2, 3...)
-    source_column       VARCHAR(255) NOT NULL,          -- JSON path e.g., 'snippet.title', '_loading_ts'
-    target_column       VARCHAR(100) NOT NULL,          -- Delta column name e.g., 'channel_name'
-    data_type           VARCHAR(50) NOT NULL,           -- 'string', 'int', 'timestamp', 'current_timestamp'
-    description         VARCHAR(500),                   -- Optional description
+    mapping_id          VARCHAR(100) NOT NULL,
+    column_order        INT NOT NULL,
+    source_column       VARCHAR(255) NOT NULL,
+    target_column       VARCHAR(100) NOT NULL,
+    data_type           VARCHAR(50) NOT NULL,
+    description         VARCHAR(500),
     PRIMARY KEY (mapping_id, column_order)
 );
 GO
 
+-- ============================================
+-- instructions tables
+-- ============================================
 
--- Ingestion Instructions: What to ingest from external sources
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'instructions' AND t.name = 'ingestion')
 CREATE TABLE instructions.ingestion (
     ingestion_id        INT PRIMARY KEY,
     source_id           INT NOT NULL,
-    endpoint_path       VARCHAR(500),                   -- API endpoint or file pattern
-    landing_path        VARCHAR(500) NOT NULL,          -- Where to write raw data
-    request_params      JSON,                           -- API request parameters
+    endpoint_path       VARCHAR(500),
+    landing_path        VARCHAR(500) NOT NULL,
+    request_params      JSON,
     is_active           BIT DEFAULT 1,
     log_function_id     INT,
     created_date        DATETIME2 DEFAULT GETDATE(),
@@ -123,23 +129,21 @@ CREATE TABLE instructions.ingestion (
 );
 GO
 
--- Loading Instructions: What to load from Raw to Bronze
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'instructions' AND t.name = 'loading')
 CREATE TABLE instructions.loading (
     loading_instr_id    INT PRIMARY KEY,
     loading_id          INT NOT NULL,
-    source_path         VARCHAR(500) NOT NULL,          -- Raw file location (Files area)
-    source_layer        VARCHAR(20) NOT NULL DEFAULT 'raw', -- 'raw' for Files area
-    target_table        VARCHAR(200) NOT NULL,          -- e.g., 'youtube/channel'
-    target_layer        VARCHAR(20) NOT NULL DEFAULT 'bronze', -- Layer for Variable Library lookup
-    key_columns         JSON NOT NULL,                  -- e.g., ["channel_id"]
-    load_params         JSON,                           -- Additional params for the function
-    merge_condition     VARCHAR(500),                   -- e.g., 'target.video_id = source.video_id'
-    merge_type          VARCHAR(20) DEFAULT 'update_all', -- 'update_all', 'specific_columns'
-    merge_columns       JSON,                           -- Specific columns if merge_type = 'specific_columns'
+    source_path         VARCHAR(500) NOT NULL,
+    source_layer        VARCHAR(20) NOT NULL DEFAULT 'raw',
+    target_table        VARCHAR(200) NOT NULL,
+    target_layer        VARCHAR(20) NOT NULL DEFAULT 'bronze',
+    key_columns         JSON NOT NULL,
+    load_params         JSON,
+    merge_condition     VARCHAR(500),
+    merge_type          VARCHAR(20) DEFAULT 'update_all',
+    merge_columns       JSON,
     is_active           BIT DEFAULT 1,
     log_function_id     INT,
-    --pipeline_name       VARCHAR(100),
-    --notebook_name       VARCHAR(100),
     created_date        DATETIME2 DEFAULT GETDATE(),
     modified_date       DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_loading_store FOREIGN KEY (loading_id)
@@ -149,22 +153,20 @@ CREATE TABLE instructions.loading (
 );
 GO
 
--- Transformation Instructions: What transforms to apply (Bronze->Silver, Silver->Gold)
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'instructions' AND t.name = 'transformations')
 CREATE TABLE instructions.transformations (
     transform_instr_id  INT PRIMARY KEY,
-    source_table        VARCHAR(200) NOT NULL,          -- e.g., 'youtube/channel'
-    source_layer        VARCHAR(20) NOT NULL,           -- 'bronze', 'silver' - for Variable Library lookup
-    dest_table          VARCHAR(200) NOT NULL,          -- e.g., 'youtube/channel_stats'
-    dest_layer          VARCHAR(20) NOT NULL,           -- 'silver', 'gold' - for Variable Library lookup
-    transform_pipeline  JSON NOT NULL,                  -- Ordered array: [1, 4, 8]
-    transform_params    JSON,                           -- Params per transform in pipeline
-    merge_condition     VARCHAR(500),                   -- Merge condition for destination
+    source_table        VARCHAR(200) NOT NULL,
+    source_layer        VARCHAR(20) NOT NULL,
+    dest_table          VARCHAR(200) NOT NULL,
+    dest_layer          VARCHAR(20) NOT NULL,
+    transform_pipeline  JSON NOT NULL,
+    transform_params    JSON,
+    merge_condition     VARCHAR(500),
     merge_type          VARCHAR(20) DEFAULT 'update_all',
     merge_columns       JSON,
     is_active           BIT DEFAULT 1,
     log_function_id     INT,
-    --pipeline_name       VARCHAR(100),
-    --notebook_name       VARCHAR(100),
     created_date        DATETIME2 DEFAULT GETDATE(),
     modified_date       DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_transform_log FOREIGN KEY (log_function_id)
@@ -172,19 +174,17 @@ CREATE TABLE instructions.transformations (
 );
 GO
 
--- Validation Instructions: What validations to run on tables
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'instructions' AND t.name = 'validations')
 CREATE TABLE instructions.validations (
     validation_instr_id INT PRIMARY KEY,
-    target_table        VARCHAR(200) NOT NULL,          -- e.g., 'marketing/channels'
-    target_layer        VARCHAR(20) NOT NULL,           -- 'gold' typically - for Variable Library lookup
+    target_table        VARCHAR(200) NOT NULL,
+    target_layer        VARCHAR(20) NOT NULL,
     expectation_id      INT NOT NULL,
-    column_name         VARCHAR(100),                   -- Column to validate (null for table-level)
-    validation_params   JSON,                           -- e.g., {"min_value": 0, "max_value": 100}
-    severity            VARCHAR(20) DEFAULT 'error',    -- 'error', 'warning'
+    column_name         VARCHAR(100),
+    validation_params   JSON,
+    severity            VARCHAR(20) DEFAULT 'error',
     is_active           BIT DEFAULT 1,
     log_function_id     INT,
-    --pipeline_name       VARCHAR(100),
-    --notebook_name       VARCHAR(100),
     created_date        DATETIME2 DEFAULT GETDATE(),
     modified_date       DATETIME2 DEFAULT GETDATE(),
     CONSTRAINT FK_validation_expectation FOREIGN KEY (expectation_id)
@@ -194,23 +194,27 @@ CREATE TABLE instructions.validations (
 );
 GO
 
--- Pipeline Runs: Execution history of pipelines
+-- ============================================
+-- log tables
+-- ============================================
+
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'log' AND t.name = 'pipeline_runs')
 CREATE TABLE log.pipeline_runs (
     run_id              BIGINT IDENTITY(1,1) PRIMARY KEY,
     pipeline_name       VARCHAR(100) NOT NULL,
     started_at          DATETIME2 DEFAULT GETDATE(),
     completed_at        DATETIME2,
-    status              VARCHAR(20) NOT NULL,           -- 'running', 'success', 'failed'
+    status              VARCHAR(20) NOT NULL,
     records_processed   INT,
     error_message       NVARCHAR(MAX),
-    action_type         VARCHAR(20),                    -- 'ingestion', 'loading', 'transformation', 'validation'
-    source_name         VARCHAR(100),                   -- e.g., 'youtube_api'
-    instruction_detail  VARCHAR(500),                   -- endpoint path, table name, etc.
-    notebook_name       VARCHAR(100)                    -- which notebook ran this
+    action_type         VARCHAR(20),
+    source_name         VARCHAR(100),
+    instruction_detail  VARCHAR(500),
+    notebook_name       VARCHAR(100)
 );
 GO
 
--- Validation Results: Outcomes of validation runs
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'log' AND t.name = 'validation_results')
 CREATE TABLE log.validation_results (
     result_id           BIGINT IDENTITY(1,1) PRIMARY KEY,
     run_id              BIGINT,
@@ -220,20 +224,20 @@ CREATE TABLE log.validation_results (
     passed              BIT NOT NULL,
     observed_value      JSON,
     executed_at         DATETIME2 DEFAULT GETDATE(),
-    lakehouse_name      VARCHAR(100),                   -- Lakehouse being validated
-    schema_name         VARCHAR(50),                    -- Schema name (e.g., 'marketing')
-    table_name          VARCHAR(100),                   -- Table name (e.g., 'channels')
+    lakehouse_name      VARCHAR(100),
+    schema_name         VARCHAR(50),
+    table_name          VARCHAR(100),
     CONSTRAINT FK_validation_run FOREIGN KEY (run_id)
         REFERENCES log.pipeline_runs(run_id)
 );
 GO
 
--- Metadata Changes: Audit trail for metadata table changes
+IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'log' AND t.name = 'metadata_changes')
 CREATE TABLE log.metadata_changes (
     change_id           BIGINT IDENTITY(1,1) PRIMARY KEY,
     table_name          VARCHAR(100) NOT NULL,
     record_id           INT NOT NULL,
-    change_type         VARCHAR(20) NOT NULL,           -- 'insert', 'update', 'delete'
+    change_type         VARCHAR(20) NOT NULL,
     changed_by          VARCHAR(100) DEFAULT SYSTEM_USER,
     changed_at          DATETIME2 DEFAULT GETDATE(),
     old_values          JSON,
