@@ -5,6 +5,10 @@
     {
       "name": "LH_WORKSPACE_NAME",
       "value": "av01-prod-datastores"
+    },
+    {
+      "name": "PROCESSING_WORKSPACE_ID",
+      "value": "f63814a5-3deb-43d8-a82a-e7f6ad9ea355"
     }
   ]
 }
