@@ -1,0 +1,87 @@
+name: Delete Feature Workspaces
+
+# Manually delete Fabric workspaces for a feature branch.
+# Only deletes Fabric workspaces — GitHub branches are NOT touched.
+on:
+  workflow_dispatch:
+    inputs:
+      feature_branch_name:
+        description: "Feature branch name (e.g. feature_walkthrough)"
+        required: true
+        type: string
+      workspace_types:
+        description: "Workspace types to delete (comma-separated)"
+        required: true
+        type: string
+        default: "processing,datastores,consumption"
+      dry_run:
+        description: "Dry run — list workspaces without deleting"
+        type: boolean
+        default: true
+      confirm:
+        description: "Type DELETE to confirm (ignored in dry run)"
+        required: true
+        type: string
+        default: ""
+
+jobs:
+  delete-feature-workspaces:
+    name: Delete Feature Workspaces
+    runs-on: windows-latest
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.SPN_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      GITHUB_ACTIONS: true
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e config/
+          pip install -r config/requirements.txt
+
+      # -----------------------------------------------------------------------
+      # Safety check — require DELETE confirmation unless dry run
+      # -----------------------------------------------------------------------
+      - name: Verify confirmation
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          if [ "${{ inputs.confirm }}" != "DELETE" ]; then
+            echo "ERROR: You must type DELETE in the confirm field to proceed."
+            echo "Set dry_run=true to preview without deleting."
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # Dry run — preview workspaces that would be deleted
+      # -----------------------------------------------------------------------
+      - name: Preview workspaces (dry run)
+        if: ${{ inputs.dry_run }}
+        run: |
+          python config/scripts/delete_feature_workspaces.py `
+            --feature-branch "${{ inputs.feature_branch_name }}" `
+            --workspace-types "${{ inputs.workspace_types }}" `
+            --config config/v01/v01-template.yml `
+            --dry-run
+
+      # -----------------------------------------------------------------------
+      # Delete workspaces (requires DELETE confirmation)
+      # -----------------------------------------------------------------------
+      - name: Delete workspaces
+        if: ${{ !inputs.dry_run }}
+        run: |
+          python config/scripts/delete_feature_workspaces.py `
+            --feature-branch "${{ inputs.feature_branch_name }}" `
+            --workspace-types "${{ inputs.workspace_types }}" `
+            --config config/v01/v01-template.yml
