@@ -21,7 +21,7 @@ import requests
 from azure.identity import ClientSecretCredential
 
 try:
-    import pyodbc
+    import pyodbc  # pylint: disable=c-extension-no-member
 except ImportError:
     print("ERROR: pyodbc not installed. Run: pip install pyodbc")
     sys.exit(1)
@@ -56,21 +56,21 @@ def get_sql_connection_string(
 ) -> tuple[str, bytes]:
     """
     Build an ODBC connection string with an Entra ID access token.
-    Fabric SQL Database uses the same endpoint format as Synapse/DW.
+    Fabric SQL Database endpoint: {workspace_id}.database.fabric.microsoft.com
     """
-    server = "%s.datawarehouse.fabric.microsoft.com" % workspace_id
+    server = f"{workspace_id}.database.fabric.microsoft.com"
 
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
-    token_struct = struct.pack("<I%ds" % len(token_bytes), len(token_bytes), token_bytes)
+    token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
 
     conn_str = (
         "DRIVER={ODBC Driver 18 for SQL Server};"
-        "SERVER=%s;"
-        "DATABASE=%s;"
+        f"SERVER={server};"
+        f"DATABASE={database_name};"
         "Encrypt=yes;"
         "TrustServerCertificate=no;"
-    ) % (server, database_name)
+    )
 
     return conn_str, token_struct
 
@@ -84,7 +84,7 @@ def get_sql_database_name(
     Resolve SQL Database name.
     Checks environment variable first, then falls back to Fabric API.
     """
-    env_var = "%s_SQL_DATABASE_NAME" % environment
+    env_var = f"{environment}_SQL_DATABASE_NAME"
     db_name = os.environ.get(env_var)
     if db_name:
         log.info("Using SQL Database name from %s: %s", env_var, db_name)
@@ -92,9 +92,9 @@ def get_sql_database_name(
 
     log.info("Resolving SQL Database name from Fabric API...")
     token = credential.get_token("https://api.fabric.microsoft.com/.default")
-    headers = {"Authorization": "Bearer %s" % token.token}
+    headers = {"Authorization": f"Bearer {token.token}"}
 
-    url = "https://api.fabric.microsoft.com/v1/workspaces/%s/sqlDatabases" % workspace_id
+    url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/sqlDatabases"
     response = requests.get(url, headers=headers, timeout=30)
 
     if response.status_code == 200:
@@ -166,7 +166,7 @@ def execute_sql_file(
         log.info("    \u2713 Done")
         return True
 
-    except pyodbc.Error as e:
+    except pyodbc.Error as e:  # pylint: disable=no-member
         log.error("    \u2717 FAILED: %s", e)
         conn.rollback()
         return False
@@ -223,12 +223,12 @@ def deploy_sql_database(
 
     try:
         log.info("Connecting to SQL Database...")
-        conn = pyodbc.connect(
+        conn = pyodbc.connect(  # pylint: disable=no-member  # pylint: disable=no-member
             conn_str,
             attrs_before={1256: token_struct}  # SQL_COPT_SS_ACCESS_TOKEN = 1256
         )
         log.info("Connected \u2713")
-    except pyodbc.Error as e:
+    except pyodbc.Error as e:  # pylint: disable=no-member
         log.error("Connection failed: %s", e)
         return False
 
@@ -280,7 +280,7 @@ def main():
     args = parser.parse_args()
 
     workspace_id = args.workspace_id or os.environ.get(
-        "%s_PROCESSING_WORKSPACE_ID" % args.environment
+        f"{args.environment}_PROCESSING_WORKSPACE_ID"
     )
     if not workspace_id:
         log.error(
@@ -305,3 +305,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

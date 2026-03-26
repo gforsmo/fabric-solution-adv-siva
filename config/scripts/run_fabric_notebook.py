@@ -55,7 +55,7 @@ def run_notebook(
     """
     base_url = "https://api.fabric.microsoft.com/v1"
     headers = {
-        "Authorization": "Bearer %s" % token,
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
@@ -63,18 +63,15 @@ def run_notebook(
     request_body = {}
     if parameters:
         request_body["executionData"] = {"parameters": parameters}
-        print("Parameters: %s" % list(parameters.keys()))
+        print(f"Parameters: {list(parameters.keys())}")
 
     # Start the notebook
-    start_url = (
-        "%s/workspaces/%s/items/%s/jobs/instances?jobType=RunNotebook"
-        % (base_url, workspace_id, notebook_id)
-    )
+    start_url = f"{base_url}/workspaces/{workspace_id}/items/{notebook_id}/jobs/instances?jobType=RunNotebook"
     response = requests.post(start_url, headers=headers, json=request_body, timeout=30)
 
     if response.status_code not in [200, 201, 202]:
-        print("Failed to start notebook (HTTP %d)" % response.status_code)
-        print("  %s" % response.text)
+        print(f"Failed to start notebook (HTTP {response.status_code})")
+        print(f"  {response.text}")
         return False
 
     # Extract job instance ID - try response body first, then Location header
@@ -93,16 +90,15 @@ def run_notebook(
 
     if not job_instance_id:
         print("Failed to get job instance ID from response")
-        print("  Headers: %s" % dict(response.headers))
-        print("  Body: %s" % response.text)
+        print(f"  Headers: {dict(response.headers)}")
+        print(f"  Body: {response.text}")
         return False
 
-    print("Notebook started (job ID: %s)" % job_instance_id)
+    print(f"Notebook started (job ID: {job_instance_id})")
 
     # Poll for completion
     status_url = (
-        "%s/workspaces/%s/items/%s/jobs/instances/%s"
-        % (base_url, workspace_id, notebook_id, job_instance_id)
+        f"{base_url}/workspaces/{workspace_id}/items/{notebook_id}/jobs/instances/{job_instance_id}"
     )
     max_polls = (timeout_minutes * 60) // POLL_INTERVAL_SECONDS
 
@@ -112,27 +108,27 @@ def run_notebook(
 
         status_response = requests.get(status_url, headers=headers, timeout=30)
         if status_response.status_code != 200:
-            print("  Warning: Failed to get job status (HTTP %d)" % status_response.status_code)
+            print(f"  Warning: Failed to get job status (HTTP {status_response.status_code})")
             continue
 
         job_status = status_response.json().get("status")
 
         if job_status == "Completed":
-            print("Notebook completed successfully (%ds)" % elapsed)
+            print(f"Notebook completed successfully ({elapsed}s)")
             return True
         elif job_status == "Failed":
             failure_reason = status_response.json().get("failureReason", {})
             error_msg = failure_reason.get("message", "Unknown error")
-            print("Notebook failed (%ds)" % elapsed)
-            print("  Error: %s" % error_msg)
+            print(f"Notebook failed ({elapsed}s)")
+            print(f"  Error: {error_msg}")
             return False
         elif job_status == "Cancelled":
-            print("Notebook was cancelled (%ds)" % elapsed)
+            print(f"Notebook was cancelled ({elapsed}s)")
             return False
         else:
-            print("  Status: %s (%ds)" % (job_status, elapsed))
+            print(f"  Status: {job_status} ({elapsed}s)")
 
-    print("Timeout: notebook did not complete within %d minutes" % timeout_minutes)
+    print(f"Timeout: notebook did not complete within {timeout_minutes} minutes")
     return False
 
 
@@ -145,7 +141,7 @@ def main():
                         help="Notebook ID to execute")
     parser.add_argument("--timeout", "-t", type=int,
                         default=DEFAULT_TIMEOUT_MINUTES,
-                        help="Timeout in minutes (default: %d)" % DEFAULT_TIMEOUT_MINUTES)
+                        help=f"Timeout in minutes (default: {DEFAULT_TIMEOUT_MINUTES})")
     parser.add_argument("--params", "-p",
                         help='JSON string with notebook parameters e.g. \'{"init_lakehouses": true}\'')
     parser.add_argument("--pass-spn-credentials", action="store_true",
@@ -153,9 +149,9 @@ def main():
 
     args = parser.parse_args()
 
-    print("Workspace: %s" % args.workspace_id)
-    print("Notebook:  %s" % args.notebook_id)
-    print("Timeout:   %d minutes" % args.timeout)
+    print(f"Workspace: {args.workspace_id}")
+    print(f"Notebook:  {args.notebook_id}")
+    print(f"Timeout:   {args.timeout} minutes")
 
     # Build parameters dict
     parameters = None
@@ -163,9 +159,9 @@ def main():
     if args.params:
         try:
             parameters = json.loads(args.params)
-            print("Parameters: %s" % list(parameters.keys()))
+            print(f"Parameters: {list(parameters.keys())}")
         except json.JSONDecodeError as e:
-            print("ERROR: Invalid JSON in --params: %s" % e)
+            print(f"ERROR: Invalid JSON in --params: {e}")
             sys.exit(1)
 
     if args.pass_spn_credentials:
@@ -193,3 +189,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

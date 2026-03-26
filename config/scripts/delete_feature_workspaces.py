@@ -16,14 +16,14 @@ import argparse
 import logging
 from pathlib import Path
 
+import requests
+from azure.identity import ClientSecretCredential
 from dotenv import load_dotenv
 
 config_dir = Path(__file__).parent.parent
 if str(config_dir) not in sys.path:
     sys.path.insert(0, str(config_dir))
 
-import requests
-from azure.identity import ClientSecretCredential
 from fabric_core import auth  # pylint: disable=wrong-import-position
 from fabric_core.utils import load_config  # pylint: disable=wrong-import-position
 
@@ -78,7 +78,7 @@ def get_all_workspaces() -> list[dict]:
     """Fetch all workspaces from Fabric API."""
     log.info("Fetching all workspaces from Fabric API...")
     token = get_fabric_token()
-    headers = {"Authorization": "Bearer %s" % token}
+    headers = {"Authorization": f"Bearer {token}"}
     response = requests.get(
         "https://api.fabric.microsoft.com/v1/workspaces",
         headers=headers,
@@ -115,9 +115,9 @@ def delete_workspace(workspace: dict, dry_run: bool = False) -> bool:
     log.info("  Deleting: %s (%s)", workspace_name, workspace_id)
     try:
         token = get_fabric_token()
-        headers = {"Authorization": "Bearer %s" % token}
+        headers = {"Authorization": f"Bearer {token}"}
         response = requests.delete(
-            "https://api.fabric.microsoft.com/v1/workspaces/%s" % workspace_id,
+            f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}",
             headers=headers,
             timeout=30,
         )
@@ -237,3 +237,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
