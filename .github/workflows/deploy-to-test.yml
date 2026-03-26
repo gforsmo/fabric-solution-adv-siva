@@ -61,10 +61,14 @@ jobs:
           pip install -r config/requirements.txt
           pip show fabric-cicd
 
+      - name: Check ODBC Drivers
+        run: |
+            Get-OdbcDriver | Select-Object Name, Platform
+        shell: pwsh
+              
       - name: Install ODBC Driver
         run: |
-          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2249004" -OutFile "msodbcsql.msi"
-          Start-Process msiexec.exe -Wait -ArgumentList '/I msodbcsql.msi /quiet /norestart IACCEPTMSODBCSQLLICENSETERMS=YES'
+          choco install sqlserver-odbcdriver -y
         shell: pwsh
 
       - name: Resume TEST capacities
