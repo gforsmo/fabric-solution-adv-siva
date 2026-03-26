@@ -84,6 +84,16 @@ jobs:
           python config/scripts/deploy_with_fabric_cicd.py `
             --environment TEST --all-workspaces
 
+                  # -----------------------------------------------------------------------
+      # Wait for SQL Database to be fully provisioned
+      # -----------------------------------------------------------------------
+      - name: Wait for SQL Database to be ready
+        if: ${{ inputs.full_init }}
+        run: |
+          Write-Host "Waiting 90 seconds for SQL Database to be provisioned..."
+          Start-Sleep -Seconds 90
+        shell: pwsh
+        
       # -----------------------------------------------------------------------
       # Step 2: Full init/reset only - SQL 01-06 (01 sletter all data!)
       # Kjøres kun ved full_init=true
