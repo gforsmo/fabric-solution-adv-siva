@@ -2,18 +2,18 @@
 Deploy Fabric SQL Database by running .sharedqueries SQL files in order.
 
 Connects to the Fabric SQL Database endpoint using SPN authentication
-and executes all SQL files in the .sharedqueries folder sequentially.
+via ActiveDirectoryServicePrincipal - the correct method for Fabric SQL Database.
 
 Usage:
     python deploy_sql_database.py --environment TEST
     python deploy_sql_database.py --environment PROD --dry-run
     python deploy_sql_database.py --environment TEST --start-from 03
+    python deploy_sql_database.py --environment TEST --start-from 02 --end-at 06
 """
 
 import os
 import sys
 import argparse
-import struct
 import logging
 from pathlib import Path
 
@@ -41,45 +41,33 @@ log = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def get_credential() -> ClientSecretCredential:
-    """Build SPN credential from environment variables."""
-    tenant_id     = os.environ["AZURE_TENANT_ID"]
-    client_id     = os.environ["AZURE_CLIENT_ID"]
-    client_secret = os.environ["AZURE_CLIENT_SECRET"]
-    return ClientSecretCredential(tenant_id, client_id, client_secret)
-
-
-def get_sql_connection_string(
-    workspace_id: str,
-    database_name: str,
-    credential: ClientSecretCredential
-) -> tuple[str, bytes]:
+def get_sql_connection_string(workspace_id: str, database_name: str) -> str:
     """
-    Build an ODBC connection string with an Entra ID access token.
-    Fabric SQL Database endpoint: {workspace_id}.database.fabric.microsoft.com
+    Build ODBC connection string using ActiveDirectoryServicePrincipal.
+
+    This is the correct authentication method for Fabric SQL Database.
+    Uses UID=client_id@tenant_id and PWD=client_secret.
     """
-    server = f"{workspace_id}.database.fabric.microsoft.com"
+    server    = f"{workspace_id}.database.fabric.microsoft.com"
+    client_id = os.environ["AZURE_CLIENT_ID"]
+    secret    = os.environ["AZURE_CLIENT_SECRET"]
+    tenant_id = os.environ["AZURE_TENANT_ID"]
 
-    token = credential.get_token("https://database.windows.net/.default")
-    token_bytes = token.token.encode("utf-16-le")
-    token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+    log.info("Connecting to server: %s", server)
 
-    conn_str = (
-        "DRIVER={ODBC Driver 18 for SQL Server};"
-        f"SERVER={server};"
+    return (
+        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+        f"SERVER={server},1433;"
         f"DATABASE={database_name};"
-        "Encrypt=yes;"
-        "TrustServerCertificate=no;"
+        f"UID={client_id}@{tenant_id};"
+        f"PWD={secret};"
+        f"Authentication=ActiveDirectoryServicePrincipal;"
+        f"Encrypt=yes;"
+        f"TrustServerCertificate=no;"
     )
 
-    return conn_str, token_struct
 
-
-def get_sql_database_name(
-    environment: str,
-    workspace_id: str,
-    credential: ClientSecretCredential
-) -> str:
+def get_sql_database_name(environment: str, workspace_id: str) -> str:
     """
     Resolve SQL Database name.
     Checks environment variable first, then falls back to Fabric API.
@@ -91,6 +79,11 @@ def get_sql_database_name(
         return db_name
 
     log.info("Resolving SQL Database name from Fabric API...")
+    credential = ClientSecretCredential(
+        tenant_id=os.environ["AZURE_TENANT_ID"],
+        client_id=os.environ["AZURE_CLIENT_ID"],
+        client_secret=os.environ["AZURE_CLIENT_SECRET"],
+    )
     token = credential.get_token("https://api.fabric.microsoft.com/.default")
     headers = {"Authorization": f"Bearer {token.token}"}
 
@@ -137,7 +130,7 @@ def get_sql_files(
 def execute_sql_file(
     conn: "pyodbc.Connection",
     sql_file: Path,
-    dry_run: bool = False
+    dry_run: bool = False,
 ) -> bool:
     """Execute a single SQL file. Returns True on success."""
     prefix = "[DRY RUN] " if dry_run else ""
@@ -157,7 +150,6 @@ def execute_sql_file(
 
         # Split on GO statements (T-SQL batch separator)
         batches = [b.strip() for b in sql_content.split("\nGO") if b.strip()]
-
         for batch in batches:
             if batch:
                 cursor.execute(batch)
@@ -199,9 +191,8 @@ def deploy_sql_database(
         log.error("sharedqueries path not found: %s", sharedqueries_path)
         return False
 
-    credential = get_credential()
-    database_name = get_sql_database_name(environment, workspace_id, credential)
-    sql_files = get_sql_files(sharedqueries_path, start_from, end_at)
+    database_name = get_sql_database_name(environment, workspace_id)
+    sql_files     = get_sql_files(sharedqueries_path, start_from, end_at)
 
     log.info("=" * 50)
     log.info("SQL Database Deployment")
@@ -219,14 +210,11 @@ def deploy_sql_database(
             log.info("  [DRY RUN] Would run: %s", f.name)
         return True
 
-    conn_str, token_struct = get_sql_connection_string(workspace_id, database_name, credential)
+    conn_str = get_sql_connection_string(workspace_id, database_name)
 
     try:
         log.info("Connecting to SQL Database...")
-        conn = pyodbc.connect(  # pylint: disable=no-member  # pylint: disable=no-member
-            conn_str,
-            attrs_before={1256: token_struct}  # SQL_COPT_SS_ACCESS_TOKEN = 1256
-        )
+        conn = pyodbc.connect(conn_str)  # pylint: disable=no-member
         log.info("Connected \u2713")
     except pyodbc.Error as e:  # pylint: disable=no-member
         log.error("Connection failed: %s", e)
@@ -305,4 +293,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
