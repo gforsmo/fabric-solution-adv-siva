@@ -58,7 +58,7 @@ def get_sql_connection_string(
     Build an ODBC connection string with an Entra ID access token.
     Fabric SQL Database uses the same endpoint format as Synapse/DW.
     """
-    server = "%s.datawarehouse.fabric.microsoft.com" % workspace_id
+    server = "%s.database.fabric.microsoft.com" % workspace_id
 
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
