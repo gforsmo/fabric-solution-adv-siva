@@ -1,12 +1,17 @@
 -- ============================================
 -- 05_create_users_and_security.sql
 -- Create users, assign roles and schema permissions
--- Run order: After 02_create_schemas_and_tables.sql
+--
+-- CI/CD-safe: uses Entra ID groups only
+-- No hardcoded personal users
+--
+-- Run order: After 04_create_triggers.sql
 -- Can be run multiple times safely (idempotent)
 -- ============================================
 
 -- ============================================
 -- Security group: sg-av-engineers
+-- Entra ID group - CI/CD safe
 -- ============================================
 IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sg-av-engineers')
     CREATE USER [sg-av-engineers] FROM EXTERNAL PROVIDER
@@ -37,9 +42,10 @@ END
 GO
 
 -- ============================================
--- Individual user: geir.forsmo.atea@siva.no
--- Note: Already db owner - no additional permissions needed
+-- NOTE: Personal users should NOT be managed here.
+-- Individual access is granted via Entra ID group
+-- membership in sg-av-engineers.
+--
+-- To grant access to a developer:
+--   Add them to sg-av-engineers in Entra ID/Azure AD
 -- ============================================
-IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'geir.forsmo.atea@siva.no')
-    CREATE USER [geir.forsmo.atea@siva.no] FROM EXTERNAL PROVIDER
-GO
