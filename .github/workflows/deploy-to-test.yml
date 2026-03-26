@@ -2,25 +2,25 @@ name: Deploy to TEST Environment
 
 # Manual trigger for TEST deployment using fabric-cicd.
 # Resumes capacities before deployment and suspends after (cost optimization).
+#
+# Modes:
+#   Normal deploy : fabric-cicd deploy, ingen SQL, valgfritt setup notebook
+#   Full init     : fabric-cicd deploy, SQL 01-06 (reset!), setup notebook
 on:
   workflow_dispatch:
     inputs:
+      full_init:
+        description: 'Full init/reset - SQL 01-06 + lakehouse setup (ADVARSEL: sletter all data!)'
+        type: boolean
+        default: false
+      run_workspace_setup:
+        description: 'Kjør setup notebook - init lakehouses (ignoreres hvis full_init=true)'
+        type: boolean
+        default: false
       run_unit_tests:
         description: 'Run unit tests after deployment'
         type: boolean
         default: true
-      run_workspace_setup:
-        description: 'Run workspace setup notebook (first deployment only)'
-        type: boolean
-        default: false
-      deploy_sql_database:
-        description: 'Deploy SQL Database (sharedqueries)'
-        type: boolean
-        default: true
-      sql_start_from:
-        description: 'Start SQL deployment from file prefix (e.g. 03 to skip 01-02)'
-        type: string
-        default: ''
       skip_capacity_suspend:
         description: 'Skip capacity suspend (leave running for debugging)'
         type: boolean
@@ -66,33 +66,42 @@ jobs:
           python config/scripts/manage_capacity.py `
             --environment TEST --action resume --wait
 
+      # -----------------------------------------------------------------------
+      # Step 1: Deploy all Fabric items (Notebooks, Pipelines, Lakehouse, etc.)
+      # -----------------------------------------------------------------------
       - name: Deploy all workspaces to TEST
         run: |
           python config/scripts/deploy_with_fabric_cicd.py `
             --environment TEST --all-workspaces
 
-      - name: Deploy SQL Database
-        if: ${{ inputs.deploy_sql_database }}
+      # -----------------------------------------------------------------------
+      # Step 2: Full init/reset only - SQL 01-06 (01 sletter all data!)
+      # Kjøres kun ved full_init=true
+      # -----------------------------------------------------------------------
+      - name: Deploy SQL Database - full init
+        if: ${{ inputs.full_init }}
         run: |
-          $startFrom = "${{ inputs.sql_start_from }}"
-          if ($startFrom -ne '') {
-            python config/scripts/deploy_sql_database.py `
-              --environment TEST `
-              --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
-              --start-from $startFrom
-          } else {
-            python config/scripts/deploy_sql_database.py `
-              --environment TEST `
-              --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }}
-          }
+          python config/scripts/deploy_sql_database.py `
+            --environment TEST `
+            --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
+            --end-at 06
 
+      # -----------------------------------------------------------------------
+      # Step 3: Setup notebook
+      # Kjøres ved full_init=true eller run_workspace_setup=true
+      # init_lakehouses=True, init_metadata_sql=False, run_pipeline=False
+      # -----------------------------------------------------------------------
       - name: Run workspace setup
-        if: ${{ inputs.run_workspace_setup }}
+        if: ${{ inputs.full_init || inputs.run_workspace_setup }}
         run: |
           python config/scripts/run_fabric_notebook.py `
             --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
-            --notebook-id ${{ vars.TEST_SETUP_NOTEBOOK_ID }}
+            --notebook-id ${{ vars.TEST_SETUP_NOTEBOOK_ID }} `
+            --params "{\"init_lakehouses\": true, \"init_metadata_sql\": false, \"run_pipeline\": false}"
 
+      # -----------------------------------------------------------------------
+      # Step 4: Run unit tests
+      # -----------------------------------------------------------------------
       - name: Run unit tests
         if: ${{ inputs.run_unit_tests }}
         run: |
@@ -100,6 +109,9 @@ jobs:
             --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
             --notebook-id ${{ vars.TEST_UNIT_TESTS_NOTEBOOK_ID }}
 
+      # -----------------------------------------------------------------------
+      # Always: Suspend capacities (cost optimization)
+      # -----------------------------------------------------------------------
       - name: Suspend TEST capacities
         if: ${{ always() && !inputs.skip_capacity_suspend }}
         run: |
