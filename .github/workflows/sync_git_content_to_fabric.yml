@@ -1,5 +1,4 @@
 name: Sync to DEV Environment
-
 on:
   pull_request:
     types: [closed]
@@ -11,10 +10,8 @@ env:
 
 jobs:
   sync-dev-workspaces:
-    # Only run if PR was merged (not just closed)
     if: github.event.pull_request.merged == true
     runs-on: windows-latest
-
     env:
       AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.SPN_CLIENT_SECRET }}
@@ -22,23 +19,23 @@ jobs:
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       GITHUB_PAT: ${{ secrets.GH_PAT }}
       GITHUB_ACTIONS: true
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install -e config/
           pip install -r config/requirements.txt
 
       - name: Sync dev workspaces from main
         run: python config/scripts/sync_dev_workspaces_from_main.py
         env:
-          PYTHONPATH: config
-          PYTHONIOENCODING: utf-8
-          PYTHONUTF8: "1"
           CONFIG_FILE: config/v01/v01-template.yml
