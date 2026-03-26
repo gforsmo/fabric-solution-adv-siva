@@ -7,16 +7,17 @@ Waits for completion and returns success/failure based on notebook execution res
 Usage:
     python run_fabric_notebook.py --workspace-id <id> --notebook-id <id>
     python run_fabric_notebook.py -w <id> -n <id> --timeout 60
-    python run_fabric_notebook.py -w <id> -n <id> --param key1=value1 --param key2=value2
+    python run_fabric_notebook.py -w <id> -n <id> --params '{"init_lakehouses": true}'
     python run_fabric_notebook.py -w <id> -n <id> --pass-spn-credentials
 """
 
 import os
 import sys
 import time
-import argparse
-import requests
 import json
+import argparse
+
+import requests
 from azure.identity import ClientSecretCredential
 
 DEFAULT_TIMEOUT_MINUTES = 30
@@ -30,12 +31,16 @@ def get_fabric_token() -> str:
         client_id=os.environ["AZURE_CLIENT_ID"],
         client_secret=os.environ["AZURE_CLIENT_SECRET"],
     )
-    token = credential.get_token("https://api.fabric.microsoft.com/.default")
-    return token.token
+    return credential.get_token("https://api.fabric.microsoft.com/.default").token
 
 
-def run_notebook(workspace_id: str, notebook_id: str, token: str, timeout_minutes: int,
-                 parameters: dict = None) -> bool:
+def run_notebook(
+    workspace_id: str,
+    notebook_id: str,
+    token: str,
+    timeout_minutes: int,
+    parameters: dict = None,
+) -> bool:
     """
     Execute a notebook via the Fabric REST API and wait for completion.
 
@@ -49,35 +54,38 @@ def run_notebook(workspace_id: str, notebook_id: str, token: str, timeout_minute
     Returns True if notebook completed successfully, False otherwise.
     """
     base_url = "https://api.fabric.microsoft.com/v1"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": "Bearer %s" % token,
+        "Content-Type": "application/json",
+    }
 
     # Build request body with parameters if provided
     request_body = {}
     if parameters:
         request_body["executionData"] = {"parameters": parameters}
-        # Print parameter names (not values, for security)
-        print(f"Parameters: {list(parameters.keys())}")
+        print("Parameters: %s" % list(parameters.keys()))
 
     # Start the notebook
-    start_url = f"{base_url}/workspaces/{workspace_id}/items/{notebook_id}/jobs/instances?jobType=RunNotebook"
-    response = requests.post(start_url, headers=headers, json=request_body)
+    start_url = (
+        "%s/workspaces/%s/items/%s/jobs/instances?jobType=RunNotebook"
+        % (base_url, workspace_id, notebook_id)
+    )
+    response = requests.post(start_url, headers=headers, json=request_body, timeout=30)
 
     if response.status_code not in [200, 201, 202]:
-        print(f"Failed to start notebook (HTTP {response.status_code})")
-        print(f"  {response.text}")
+        print("Failed to start notebook (HTTP %d)" % response.status_code)
+        print("  %s" % response.text)
         return False
 
     # Extract job instance ID - try response body first, then Location header
     job_instance_id = None
 
-    # Try JSON body first
     if response.text:
         try:
             job_instance_id = response.json().get("id")
         except requests.exceptions.JSONDecodeError:
             pass
 
-    # Fall back to Location header (format: .../jobs/instances/{jobInstanceId})
     if not job_instance_id:
         location = response.headers.get("Location", "")
         if "/jobs/instances/" in location:
@@ -85,73 +93,100 @@ def run_notebook(workspace_id: str, notebook_id: str, token: str, timeout_minute
 
     if not job_instance_id:
         print("Failed to get job instance ID from response")
-        print(f"  Headers: {dict(response.headers)}")
-        print(f"  Body: {response.text}")
+        print("  Headers: %s" % dict(response.headers))
+        print("  Body: %s" % response.text)
         return False
 
-    print(f"Notebook started (job ID: {job_instance_id})")
+    print("Notebook started (job ID: %s)" % job_instance_id)
 
     # Poll for completion
-    status_url = f"{base_url}/workspaces/{workspace_id}/items/{notebook_id}/jobs/instances/{job_instance_id}"
+    status_url = (
+        "%s/workspaces/%s/items/%s/jobs/instances/%s"
+        % (base_url, workspace_id, notebook_id, job_instance_id)
+    )
     max_polls = (timeout_minutes * 60) // POLL_INTERVAL_SECONDS
 
     for poll_num in range(max_polls):
         time.sleep(POLL_INTERVAL_SECONDS)
         elapsed = (poll_num + 1) * POLL_INTERVAL_SECONDS
 
-        status_response = requests.get(status_url, headers=headers)
+        status_response = requests.get(status_url, headers=headers, timeout=30)
         if status_response.status_code != 200:
-            print(f"  Warning: Failed to get job status (HTTP {status_response.status_code})")
+            print("  Warning: Failed to get job status (HTTP %d)" % status_response.status_code)
             continue
 
         job_status = status_response.json().get("status")
 
         if job_status == "Completed":
-            print(f"Notebook completed successfully ({elapsed}s)")
+            print("Notebook completed successfully (%ds)" % elapsed)
             return True
         elif job_status == "Failed":
             failure_reason = status_response.json().get("failureReason", {})
             error_msg = failure_reason.get("message", "Unknown error")
-            print(f"Notebook failed ({elapsed}s)")
-            print(f"  Error: {error_msg}")
+            print("Notebook failed (%ds)" % elapsed)
+            print("  Error: %s" % error_msg)
             return False
         elif job_status == "Cancelled":
-            print(f"Notebook was cancelled ({elapsed}s)")
+            print("Notebook was cancelled (%ds)" % elapsed)
             return False
         else:
-            # Still running (InProgress, NotStarted, etc.)
-            print(f"  Status: {job_status} ({elapsed}s)")
+            print("  Status: %s (%ds)" % (job_status, elapsed))
 
-    print(f"Timeout: notebook did not complete within {timeout_minutes} minutes")
+    print("Timeout: notebook did not complete within %d minutes" % timeout_minutes)
     return False
 
 
 def main():
+    """Entry point for run_fabric_notebook CLI."""
     parser = argparse.ArgumentParser(description="Run a Fabric notebook")
-    parser.add_argument("--workspace-id", "-w", required=True, help="Fabric workspace ID")
-    parser.add_argument("--notebook-id", "-n", required=True, help="Notebook ID to execute")
-    parser.add_argument("--timeout", "-t", type=int, default=DEFAULT_TIMEOUT_MINUTES,
-                        help=f"Timeout in minutes (default: {DEFAULT_TIMEOUT_MINUTES})")
+    parser.add_argument("--workspace-id", "-w", required=True,
+                        help="Fabric workspace ID")
+    parser.add_argument("--notebook-id", "-n", required=True,
+                        help="Notebook ID to execute")
+    parser.add_argument("--timeout", "-t", type=int,
+                        default=DEFAULT_TIMEOUT_MINUTES,
+                        help="Timeout in minutes (default: %d)" % DEFAULT_TIMEOUT_MINUTES)
+    parser.add_argument("--params", "-p",
+                        help='JSON string with notebook parameters e.g. \'{"init_lakehouses": true}\'')
     parser.add_argument("--pass-spn-credentials", action="store_true",
-                        help="Pass SPN credentials (from env vars) to notebook for Key Vault access")
+                        help="Pass SPN credentials to notebook for Key Vault access")
+
     args = parser.parse_args()
 
-    print(f"Workspace: {args.workspace_id}")
-    print(f"Notebook:  {args.notebook_id}")
-    print(f"Timeout:   {args.timeout} minutes")
+    print("Workspace: %s" % args.workspace_id)
+    print("Notebook:  %s" % args.notebook_id)
+    print("Timeout:   %d minutes" % args.timeout)
 
-    # Build parameters dict if SPN credentials should be passed
+    # Build parameters dict
     parameters = None
+
+    if args.params:
+        try:
+            parameters = json.loads(args.params)
+            print("Parameters: %s" % list(parameters.keys()))
+        except json.JSONDecodeError as e:
+            print("ERROR: Invalid JSON in --params: %s" % e)
+            sys.exit(1)
+
     if args.pass_spn_credentials:
-        parameters = {
-            "spn_tenant_id": os.environ["AZURE_TENANT_ID"],
-            "spn_client_id": os.environ["AZURE_CLIENT_ID"],
-            "spn_client_secret": os.environ["AZURE_CLIENT_SECRET"]
-        }
+        if parameters is None:
+            parameters = {}
+        parameters.update({
+            "spn_tenant_id":     os.environ["AZURE_TENANT_ID"],
+            "spn_client_id":     os.environ["AZURE_CLIENT_ID"],
+            "spn_client_secret": os.environ["AZURE_CLIENT_SECRET"],
+        })
+
     print()
 
     token = get_fabric_token()
-    success = run_notebook(args.workspace_id, args.notebook_id, token, args.timeout, parameters)
+    success = run_notebook(
+        workspace_id=args.workspace_id,
+        notebook_id=args.notebook_id,
+        token=token,
+        timeout_minutes=args.timeout,
+        parameters=parameters,
+    )
 
     sys.exit(0 if success else 1)
 

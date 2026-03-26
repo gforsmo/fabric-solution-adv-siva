@@ -22,8 +22,10 @@ config_dir = Path(__file__).parent.parent
 if str(config_dir) not in sys.path:
     sys.path.insert(0, str(config_dir))
 
+import requests
+from azure.identity import ClientSecretCredential
 from fabric_core import auth  # pylint: disable=wrong-import-position
-from fabric_core.utils import load_config, call_azure_api  # pylint: disable=wrong-import-position
+from fabric_core.utils import load_config  # pylint: disable=wrong-import-position
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -62,14 +64,28 @@ def get_candidate_names(
     return candidates
 
 
+def get_fabric_token() -> str:
+    """Get Fabric API access token using SPN credentials."""
+    credential = ClientSecretCredential(
+        tenant_id=os.environ["AZURE_TENANT_ID"],
+        client_id=os.environ["AZURE_CLIENT_ID"],
+        client_secret=os.environ["AZURE_CLIENT_SECRET"],
+    )
+    return credential.get_token("https://api.fabric.microsoft.com/.default").token
+
+
 def get_all_workspaces() -> list[dict]:
     """Fetch all workspaces from Fabric API."""
     log.info("Fetching all workspaces from Fabric API...")
-    response = call_azure_api(
-        method="GET",
-        url="https://api.fabric.microsoft.com/v1/workspaces",
+    token = get_fabric_token()
+    headers = {"Authorization": "Bearer %s" % token}
+    response = requests.get(
+        "https://api.fabric.microsoft.com/v1/workspaces",
+        headers=headers,
+        timeout=30,
     )
-    workspaces = response.get("value", [])
+    response.raise_for_status()
+    workspaces = response.json().get("value", [])
     log.info("Found %d workspaces total", len(workspaces))
     return workspaces
 
@@ -98,10 +114,14 @@ def delete_workspace(workspace: dict, dry_run: bool = False) -> bool:
 
     log.info("  Deleting: %s (%s)", workspace_name, workspace_id)
     try:
-        call_azure_api(
-            method="DELETE",
-            url=f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}",
+        token = get_fabric_token()
+        headers = {"Authorization": "Bearer %s" % token}
+        response = requests.delete(
+            "https://api.fabric.microsoft.com/v1/workspaces/%s" % workspace_id,
+            headers=headers,
+            timeout=30,
         )
+        response.raise_for_status()
         log.info("  \u2713 Deleted: %s", workspace_name)
         return True
     except Exception as e:  # pylint: disable=broad-except
