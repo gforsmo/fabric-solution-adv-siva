@@ -49,87 +49,69 @@ def get_credential() -> ClientSecretCredential:
     return ClientSecretCredential(tenant_id, client_id, client_secret)
 
 
-def get_sql_connection_string(
-    workspace_id: str,
-    database_name: str,
-    credential: ClientSecretCredential
-) -> tuple[str, bytes]:
+def get_sql_connection_string(workspace_id: str, database_name: str, credential: ClientSecretCredential) -> str:
     """
     Build an ODBC connection string with an Entra ID access token.
     Fabric SQL Database uses the same endpoint format as Synapse/DW.
     """
-    server = "%s.datawarehouse.fabric.microsoft.com" % workspace_id
+    server = f"{workspace_id}.datawarehouse.fabric.microsoft.com"
 
+    # Get access token for SQL / Fabric endpoint
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
-    token_struct = struct.pack("<I%ds" % len(token_bytes), len(token_bytes), token_bytes)
+    token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
 
     conn_str = (
-        "DRIVER={ODBC Driver 18 for SQL Server};"
-        "SERVER=%s;"
-        "DATABASE=%s;"
-        "Encrypt=yes;"
-        "TrustServerCertificate=no;"
-    ) % (server, database_name)
-
+        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+        f"SERVER={server};"
+        f"DATABASE={database_name};"
+        f"Encrypt=yes;"
+        f"TrustServerCertificate=no;"
+    )
     return conn_str, token_struct
 
 
-def get_sql_database_name(
-    environment: str,
-    workspace_id: str,
-    credential: ClientSecretCredential
-) -> str:
+def get_sql_database_name(environment: str, workspace_id: str, credential: ClientSecretCredential) -> str:
     """
-    Resolve SQL Database name.
-    Checks environment variable first, then falls back to Fabric API.
+    Resolve SQL Database name from Fabric API.
+    Falls back to environment variable if API call fails.
     """
-    env_var = "%s_SQL_DATABASE_NAME" % environment
-    db_name = os.environ.get(env_var)
-    if db_name:
-        log.info("Using SQL Database name from %s: %s", env_var, db_name)
-        return db_name
+    env_var = f"{environment}_SQL_DATABASE_NAME"
+    if os.environ.get(env_var):
+        return os.environ[env_var]
 
     log.info("Resolving SQL Database name from Fabric API...")
     token = credential.get_token("https://api.fabric.microsoft.com/.default")
-    headers = {"Authorization": "Bearer %s" % token.token}
+    headers = {"Authorization": f"Bearer {token.token}"}
 
-    url = "https://api.fabric.microsoft.com/v1/workspaces/%s/sqlDatabases" % workspace_id
+    url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/sqlDatabases"
     response = requests.get(url, headers=headers, timeout=30)
 
     if response.status_code == 200:
         databases = response.json().get("value", [])
         if databases:
             db_name = databases[0]["displayName"]
-            log.info("Found SQL Database: %s", db_name)
+            log.info(f"Found SQL Database: {db_name}")
             return db_name
 
-    log.warning("Could not resolve database name from API. Set %s environment variable.", env_var)
+    log.warning(f"Could not resolve database name from API. Set {env_var} environment variable.")
     sys.exit(1)
 
 
-def get_sql_files(
-    sharedqueries_path: Path,
-    start_from: str = None,
-    end_at: str = None,
-) -> list[Path]:
+def get_sql_files(sharedqueries_path: Path, start_from: str = None) -> list[Path]:
     """
     Get all .sql files from .sharedqueries folder, sorted by filename.
-    Optionally filter by start_from (e.g. '02') and end_at (e.g. '06').
+    Optionally start from a specific prefix (e.g. '03').
     """
     sql_files = sorted(sharedqueries_path.glob("*.sql"))
 
     if not sql_files:
-        log.error("No .sql files found in %s", sharedqueries_path)
+        log.error(f"No .sql files found in {sharedqueries_path}")
         sys.exit(1)
 
     if start_from:
         sql_files = [f for f in sql_files if f.name >= start_from]
-        log.info("Starting from files with prefix >= %s", start_from)
-
-    if end_at:
-        sql_files = [f for f in sql_files if f.name[:2] <= end_at]
-        log.info("Ending at files with prefix <= %s", end_at)
+        log.info(f"Starting from files with prefix >= {start_from}")
 
     return sql_files
 
@@ -140,16 +122,15 @@ def execute_sql_file(
     dry_run: bool = False
 ) -> bool:
     """Execute a single SQL file. Returns True on success."""
-    prefix = "[DRY RUN] " if dry_run else ""
-    log.info("  %sRunning: %s", prefix, sql_file.name)
+    log.info(f"  {'[DRY RUN] ' if dry_run else ''}Running: {sql_file.name}")
 
     sql_content = sql_file.read_text(encoding="utf-8").strip()
     if not sql_content:
-        log.warning("    Skipping empty file: %s", sql_file.name)
+        log.warning(f"    Skipping empty file: {sql_file.name}")
         return True
 
     if dry_run:
-        log.info("    Would execute %d chars", len(sql_content))
+        log.info(f"    Would execute {len(sql_content)} chars")
         return True
 
     try:
@@ -163,11 +144,11 @@ def execute_sql_file(
                 cursor.execute(batch)
 
         conn.commit()
-        log.info("    \u2713 Done")
+        log.info(f"    ✓ Done")
         return True
 
     except pyodbc.Error as e:
-        log.error("    \u2717 FAILED: %s", e)
+        log.error(f"    ✗ FAILED: {e}")
         conn.rollback()
         return False
 
@@ -182,41 +163,31 @@ def deploy_sql_database(
     repository_root: Path,
     dry_run: bool = False,
     start_from: str = None,
-    end_at: str = None,
 ) -> bool:
     """Deploy SQL Database by running sharedqueries files in order."""
 
-    sharedqueries_path = (
-        repository_root
-        / "solution"
-        / "processing"
-        / "orchestration"
-        / "fs-av01-admin.SQLDatabase"
-        / ".sharedqueries"
-    )
+    sharedqueries_path = repository_root / "solution" / "processing" / "fs-av01-admin.SQLDatabase" / ".sharedqueries"
 
     if not sharedqueries_path.exists():
-        log.error("sharedqueries path not found: %s", sharedqueries_path)
+        log.error(f"sharedqueries path not found: {sharedqueries_path}")
         return False
 
     credential = get_credential()
     database_name = get_sql_database_name(environment, workspace_id, credential)
-    sql_files = get_sql_files(sharedqueries_path, start_from, end_at)
+    sql_files = get_sql_files(sharedqueries_path, start_from)
 
-    log.info("=" * 50)
-    log.info("SQL Database Deployment")
-    log.info("  Environment : %s", environment)
-    log.info("  Workspace   : %s", workspace_id)
-    log.info("  Database    : %s", database_name)
-    log.info("  Files       : %d", len(sql_files))
-    log.info("  Start from  : %s", start_from or "01 (first)")
-    log.info("  End at      : %s", end_at or "last")
-    log.info("  Dry run     : %s", dry_run)
-    log.info("=" * 50)
+    log.info(f"\n{'='*50}")
+    log.info(f"SQL Database Deployment")
+    log.info(f"  Environment : {environment}")
+    log.info(f"  Workspace   : {workspace_id}")
+    log.info(f"  Database    : {database_name}")
+    log.info(f"  Files       : {len(sql_files)}")
+    log.info(f"  Dry run     : {dry_run}")
+    log.info(f"{'='*50}\n")
 
     if dry_run:
         for f in sql_files:
-            log.info("  [DRY RUN] Would run: %s", f.name)
+            log.info(f"  [DRY RUN] Would run: {f.name}")
         return True
 
     conn_str, token_struct = get_sql_connection_string(workspace_id, database_name, credential)
@@ -227,31 +198,32 @@ def deploy_sql_database(
             conn_str,
             attrs_before={1256: token_struct}  # SQL_COPT_SS_ACCESS_TOKEN = 1256
         )
-        log.info("Connected \u2713")
+        log.info("Connected ✓\n")
     except pyodbc.Error as e:
-        log.error("Connection failed: %s", e)
+        log.error(f"Connection failed: {e}")
         return False
 
     results = {}
     for sql_file in sql_files:
         results[sql_file.name] = execute_sql_file(conn, sql_file, dry_run)
         if not results[sql_file.name]:
-            log.error("Deployment stopped at: %s", sql_file.name)
+            log.error(f"\nDeployment stopped at: {sql_file.name}")
             conn.close()
             break
 
     conn.close()
 
-    log.info("--- Summary ---")
+    # Summary
+    log.info(f"\n--- Summary ---")
     for filename, success in results.items():
-        log.info("  %s %s", "\u2713" if success else "\u2717", filename)
+        log.info(f"  {'✓' if success else '✗'} {filename}")
 
     failed = [f for f, s in results.items() if not s]
     if failed:
-        log.error("%d file(s) failed.", len(failed))
+        log.error(f"\n{len(failed)} file(s) failed.")
         return False
 
-    log.info("\u2705 SQL Database deployed successfully (%d files)", len(results))
+    log.info(f"\n✅ SQL Database deployed successfully ({len(results)} files)")
     return True
 
 
@@ -260,7 +232,6 @@ def deploy_sql_database(
 # ---------------------------------------------------------------------------
 
 def main():
-    """Entry point for deploy_sql_database CLI."""
     parser = argparse.ArgumentParser(description="Deploy Fabric SQL Database")
     parser.add_argument("--environment", "-e", required=True,
                         choices=["TEST", "PROD"],
@@ -271,22 +242,16 @@ def main():
                         help="List files without executing")
     parser.add_argument("--start-from",
                         help="Start from file prefix, e.g. '03' to skip 01 and 02")
-    parser.add_argument("--end-at",
-                        help="End at file prefix, e.g. '06' to skip 07")
     parser.add_argument("--config", "-c",
                         default="config/v01/v01-template.yml",
                         help="Path to configuration file")
 
     args = parser.parse_args()
 
-    workspace_id = args.workspace_id or os.environ.get(
-        "%s_PROCESSING_WORKSPACE_ID" % args.environment
-    )
+    # Resolve workspace ID
+    workspace_id = args.workspace_id or os.environ.get(f"{args.environment}_PROCESSING_WORKSPACE_ID")
     if not workspace_id:
-        log.error(
-            "Set %s_PROCESSING_WORKSPACE_ID environment variable or use --workspace-id",
-            args.environment
-        )
+        log.error(f"Set {args.environment}_PROCESSING_WORKSPACE_ID environment variable or use --workspace-id")
         sys.exit(1)
 
     repository_root = Path(__file__).parent.parent.parent
@@ -297,7 +262,6 @@ def main():
         repository_root=repository_root,
         dry_run=args.dry_run,
         start_from=args.start_from,
-        end_at=args.end_at,
     )
 
     sys.exit(0 if success else 1)
