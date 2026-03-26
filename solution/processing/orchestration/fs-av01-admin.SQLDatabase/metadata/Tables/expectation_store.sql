@@ -12,7 +12,7 @@ GO
 
 
 -- Trigger for metadata.expectation_store
-CREATE   TRIGGER [metadata].trg_expectation_store_audit
+CREATE TRIGGER [metadata].[trg_expectation_store_audit]
 ON metadata.expectation_store
 AFTER INSERT, UPDATE, DELETE
 AS

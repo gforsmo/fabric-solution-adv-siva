@@ -11,7 +11,7 @@ GO
 
 
 -- Trigger for metadata.transform_store
-CREATE   TRIGGER [metadata].trg_transform_store_audit
+CREATE TRIGGER [metadata].[trg_transform_store_audit]
 ON metadata.transform_store
 AFTER INSERT, UPDATE, DELETE
 AS

@@ -11,7 +11,7 @@ GO
 
 
 -- Trigger for metadata.log_store
-CREATE   TRIGGER [metadata].trg_log_store_audit
+CREATE TRIGGER [metadata].[trg_log_store_audit]
 ON metadata.log_store
 AFTER INSERT, UPDATE, DELETE
 AS

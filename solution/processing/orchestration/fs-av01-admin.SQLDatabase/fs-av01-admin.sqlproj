@@ -16,7 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <Build Remove=".sharedqueries\**" />
-    <Build Remove="Security\**" />
   </ItemGroup>
   <Target Name="BeforeBuild">
     <Delete Files="$(BaseIntermediateOutputPath)\project.assets.json" />

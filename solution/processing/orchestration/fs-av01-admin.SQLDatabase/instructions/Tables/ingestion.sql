@@ -26,7 +26,7 @@ GO
 
 
 -- Trigger for instructions.ingestion
-CREATE   TRIGGER [instructions].trg_ingestion_audit
+CREATE TRIGGER [instructions].[trg_ingestion_audit]
 ON instructions.ingestion
 AFTER INSERT, UPDATE, DELETE
 AS
