@@ -108,10 +108,14 @@ def get_sql_database_name(
     sys.exit(1)
 
 
-def get_sql_files(sharedqueries_path: Path, start_from: str = None) -> list[Path]:
+def get_sql_files(
+    sharedqueries_path: Path,
+    start_from: str = None,
+    end_at: str = None,
+) -> list[Path]:
     """
     Get all .sql files from .sharedqueries folder, sorted by filename.
-    Optionally start from a specific prefix (e.g. '03').
+    Optionally filter by start_from (e.g. '02') and end_at (e.g. '06').
     """
     sql_files = sorted(sharedqueries_path.glob("*.sql"))
 
@@ -122,6 +126,10 @@ def get_sql_files(sharedqueries_path: Path, start_from: str = None) -> list[Path
     if start_from:
         sql_files = [f for f in sql_files if f.name >= start_from]
         log.info("Starting from files with prefix >= %s", start_from)
+
+    if end_at:
+        sql_files = [f for f in sql_files if f.name[:2] <= end_at]
+        log.info("Ending at files with prefix <= %s", end_at)
 
     return sql_files
 
@@ -174,6 +182,7 @@ def deploy_sql_database(
     repository_root: Path,
     dry_run: bool = False,
     start_from: str = None,
+    end_at: str = None,
 ) -> bool:
     """Deploy SQL Database by running sharedqueries files in order."""
 
@@ -192,7 +201,7 @@ def deploy_sql_database(
 
     credential = get_credential()
     database_name = get_sql_database_name(environment, workspace_id, credential)
-    sql_files = get_sql_files(sharedqueries_path, start_from)
+    sql_files = get_sql_files(sharedqueries_path, start_from, end_at)
 
     log.info("=" * 50)
     log.info("SQL Database Deployment")
@@ -200,6 +209,8 @@ def deploy_sql_database(
     log.info("  Workspace   : %s", workspace_id)
     log.info("  Database    : %s", database_name)
     log.info("  Files       : %d", len(sql_files))
+    log.info("  Start from  : %s", start_from or "01 (first)")
+    log.info("  End at      : %s", end_at or "last")
     log.info("  Dry run     : %s", dry_run)
     log.info("=" * 50)
 
@@ -260,6 +271,8 @@ def main():
                         help="List files without executing")
     parser.add_argument("--start-from",
                         help="Start from file prefix, e.g. '03' to skip 01 and 02")
+    parser.add_argument("--end-at",
+                        help="End at file prefix, e.g. '06' to skip 07")
     parser.add_argument("--config", "-c",
                         default="config/v01/v01-template.yml",
                         help="Path to configuration file")
@@ -284,6 +297,7 @@ def main():
         repository_root=repository_root,
         dry_run=args.dry_run,
         start_from=args.start_from,
+        end_at=args.end_at,
     )
 
     sys.exit(0 if success else 1)
