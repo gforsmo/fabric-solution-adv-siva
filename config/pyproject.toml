@@ -7,6 +7,12 @@ name = "fabric-core"
 version = "0.1.0"
 description = "Reusable modules for Microsoft Fabric CLI operations"
 requires-python = ">=3.12"
+dependencies = [
+    "azure-identity>=1.15.0",
+    "requests>=2.31.0",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["fabric_core*"]

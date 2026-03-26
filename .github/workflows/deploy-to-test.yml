@@ -1,5 +1,6 @@
 name: Deploy to TEST Environment
-
+# Manual trigger for TEST deployment using fabric-cicd.
+# Resumes capacities before deployment and suspends after (cost optimization).
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +12,14 @@ on:
         description: 'Run workspace setup notebook (first deployment only)'
         type: boolean
         default: false
+      deploy_sql_database:
+        description: 'Deploy SQL Database (sharedqueries)'
+        type: boolean
+        default: true
+      sql_start_from:
+        description: 'Start SQL deployment from file prefix (e.g. 03 to skip 01-02)'
+        type: string
+        default: ''
       skip_capacity_suspend:
         description: 'Skip capacity suspend (leave running for debugging)'
         type: boolean
@@ -23,7 +32,6 @@ jobs:
   deploy-to-test:
     name: Deploy to TEST
     runs-on: windows-latest
-
     env:
       AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.SPN_CLIENT_SECRET }}
@@ -32,6 +40,8 @@ jobs:
       TEST_DATASTORES_WORKSPACE_ID: ${{ vars.TEST_DATASTORES_WORKSPACE_ID }}
       TEST_PROCESSING_WORKSPACE_ID: ${{ vars.TEST_PROCESSING_WORKSPACE_ID }}
       TEST_CONSUMPTION_WORKSPACE_ID: ${{ vars.TEST_CONSUMPTION_WORKSPACE_ID }}
+      # Optional: override SQL database name (if not set, resolved from Fabric API)
+      # TEST_SQL_DATABASE_NAME: ${{ vars.TEST_SQL_DATABASE_NAME }}
       GITHUB_ACTIONS: true
       PYTHONPATH: config
       PYTHONUTF8: "1"
@@ -48,17 +58,43 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r config/requirements.txt
+          pip show fabric-cicd
 
       - name: Resume TEST capacities
         run: |
           python config/scripts/manage_capacity.py `
             --environment TEST --action resume --wait
 
+      # -----------------------------------------------------------------------
+      # Step 1: Deploy all Fabric items (Notebooks, Pipelines, Lakehouse, etc.)
+      # -----------------------------------------------------------------------
       - name: Deploy all workspaces to TEST
         run: |
           python config/scripts/deploy_with_fabric_cicd.py `
             --environment TEST --all-workspaces
 
+      # -----------------------------------------------------------------------
+      # Step 2: Deploy SQL Database structure (sharedqueries in order)
+      # Runs after fabric-cicd so the SQL Database item shell exists first
+      # -----------------------------------------------------------------------
+      - name: Deploy SQL Database
+        if: ${{ inputs.deploy_sql_database }}
+        run: |
+          $startFrom = "${{ inputs.sql_start_from }}"
+          if ($startFrom -ne '') {
+            python config/scripts/deploy_sql_database.py `
+              --environment TEST `
+              --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
+              --start-from $startFrom
+          } else {
+            python config/scripts/deploy_sql_database.py `
+              --environment TEST `
+              --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }}
+          }
+
+      # -----------------------------------------------------------------------
+      # Step 3: Optional workspace setup notebook (first deployment only)
+      # -----------------------------------------------------------------------
       - name: Run workspace setup
         if: ${{ inputs.run_workspace_setup }}
         run: |
@@ -66,6 +102,9 @@ jobs:
             --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
             --notebook-id ${{ vars.TEST_SETUP_NOTEBOOK_ID }}
 
+      # -----------------------------------------------------------------------
+      # Step 4: Run unit tests
+      # -----------------------------------------------------------------------
       - name: Run unit tests
         if: ${{ inputs.run_unit_tests }}
         run: |
@@ -73,6 +112,9 @@ jobs:
             --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
             --notebook-id ${{ vars.TEST_UNIT_TESTS_NOTEBOOK_ID }}
 
+      # -----------------------------------------------------------------------
+      # Always: Suspend capacities (cost optimization)
+      # -----------------------------------------------------------------------
       - name: Suspend TEST capacities
         if: ${{ always() && !inputs.skip_capacity_suspend }}
         run: |

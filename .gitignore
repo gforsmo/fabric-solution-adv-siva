@@ -12,3 +12,4 @@ docs/repo-health-scorecard.md
 .DS_Store
 .ipynb_checkpoints/
 .vscode/
+config/fabric_core.egg-info/
