@@ -6,6 +6,9 @@ name: Deploy to TEST Environment
 # Modes:
 #   Normal deploy : fabric-cicd deploy, ingen SQL, valgfritt setup notebook
 #   Full init     : fabric-cicd deploy, SQL 01-06 (reset!), setup notebook
+#
+# After deploy, Variable Library is automatically updated with live Fabric
+# values (SQL Database endpoint, Environment ID etc.)
 on:
   workflow_dispatch:
     inputs:
@@ -43,6 +46,7 @@ jobs:
       TEST_DATASTORES_WORKSPACE_ID: ${{ vars.TEST_DATASTORES_WORKSPACE_ID }}
       TEST_PROCESSING_WORKSPACE_ID: ${{ vars.TEST_PROCESSING_WORKSPACE_ID }}
       TEST_CONSUMPTION_WORKSPACE_ID: ${{ vars.TEST_CONSUMPTION_WORKSPACE_ID }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GITHUB_ACTIONS: true
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
@@ -61,11 +65,6 @@ jobs:
           pip install -r config/requirements.txt
           pip show fabric-cicd
 
-      - name: Check ODBC Drivers
-        run: |
-            Get-OdbcDriver | Select-Object Name, Platform
-        shell: pwsh
-              
       - name: Install ODBC Driver
         run: |
           choco install sqlserver-odbcdriver -y
@@ -84,8 +83,22 @@ jobs:
           python config/scripts/deploy_with_fabric_cicd.py `
             --environment TEST --all-workspaces
 
-                  # -----------------------------------------------------------------------
-      # Wait for SQL Database to be fully provisioned
+      # -----------------------------------------------------------------------
+      # Step 2: Update Variable Library with live Fabric values
+      # Runs after every deploy to keep Variable Library in sync with
+      # current SQL Database endpoint, Environment ID etc.
+      # Commits updated valueSet/TEST.json back to Git automatically.
+      # -----------------------------------------------------------------------
+      - name: Update Variable Library
+        run: |
+          python config/scripts/update_variable_library.py `
+            --environment TEST `
+            --processing-workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+
+      # -----------------------------------------------------------------------
+      # Step 3: Wait for SQL Database to be fully provisioned (full init only)
       # -----------------------------------------------------------------------
       - name: Wait for SQL Database to be ready
         if: ${{ inputs.full_init }}
@@ -93,9 +106,9 @@ jobs:
           Write-Host "Waiting 90 seconds for SQL Database to be provisioned..."
           Start-Sleep -Seconds 90
         shell: pwsh
-        
+
       # -----------------------------------------------------------------------
-      # Step 2: Full init/reset only - SQL 01-06 (01 sletter all data!)
+      # Step 4: Full init/reset only - SQL 01-06 (01 sletter all data!)
       # Kjøres kun ved full_init=true
       # -----------------------------------------------------------------------
       - name: Deploy SQL Database - full init
@@ -107,7 +120,7 @@ jobs:
             --end-at 06
 
       # -----------------------------------------------------------------------
-      # Step 3: Setup notebook
+      # Step 5: Setup notebook
       # Kjøres ved full_init=true eller run_workspace_setup=true
       # init_lakehouses=True, init_metadata_sql=False, run_pipeline=False
       # -----------------------------------------------------------------------
@@ -120,7 +133,7 @@ jobs:
             --params "{\"init_lakehouses\": true, \"init_metadata_sql\": false, \"run_pipeline\": false}"
 
       # -----------------------------------------------------------------------
-      # Step 4: Run unit tests
+      # Step 6: Run unit tests
       # -----------------------------------------------------------------------
       - name: Run unit tests
         if: ${{ inputs.run_unit_tests }}
