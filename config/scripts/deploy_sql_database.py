@@ -41,14 +41,14 @@ log = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def get_sql_connection_string(workspace_id: str, database_name: str) -> str:
+def get_sql_connection_string(server: str, database_name: str) -> str:
     """
     Build ODBC connection string using ActiveDirectoryServicePrincipal.
 
     This is the correct authentication method for Fabric SQL Database.
     Uses UID=client_id@tenant_id and PWD=client_secret.
+    Server must be the SQL Database connection string, not workspace ID.
     """
-    server    = f"{workspace_id}.database.fabric.microsoft.com"
     client_id = os.environ["AZURE_CLIENT_ID"]
     secret    = os.environ["AZURE_CLIENT_SECRET"]
     tenant_id = os.environ["AZURE_TENANT_ID"]
@@ -63,22 +63,32 @@ def get_sql_connection_string(workspace_id: str, database_name: str) -> str:
         f"PWD={secret};"
         f"Authentication=ActiveDirectoryServicePrincipal;"
         f"Encrypt=yes;"
-        f"TrustServerCertificate=no;"
+        f"TrustServerCertificate=yes;"
     )
 
 
-def get_sql_database_name(environment: str, workspace_id: str) -> str:
+def get_sql_database_info(environment: str, workspace_id: str) -> tuple[str, str]:
     """
-    Resolve SQL Database name.
-    Checks environment variable first, then falls back to Fabric API.
-    """
-    env_var = f"{environment}_SQL_DATABASE_NAME"
-    db_name = os.environ.get(env_var)
-    if db_name:
-        log.info("Using SQL Database name from %s: %s", env_var, db_name)
-        return db_name
+    Resolve SQL Database name and server connection string from Fabric API.
 
-    log.info("Resolving SQL Database name from Fabric API...")
+    Returns:
+        tuple: (database_name, server_connection_string)
+
+    The server connection string is the actual SQL endpoint, e.g.:
+        abc123.database.fabric.microsoft.com
+    This is different from the workspace ID.
+    """
+    env_name   = f"{environment}_SQL_DATABASE_NAME"
+    env_server = f"{environment}_SQL_SERVER"
+
+    db_name = os.environ.get(env_name)
+    server  = os.environ.get(env_server)
+
+    if db_name and server:
+        log.info("Using SQL Database from env vars: %s @ %s", db_name, server)
+        return db_name, server
+
+    log.info("Resolving SQL Database info from Fabric API...")
     credential = ClientSecretCredential(
         tenant_id=os.environ["AZURE_TENANT_ID"],
         client_id=os.environ["AZURE_CLIENT_ID"],
@@ -93,12 +103,40 @@ def get_sql_database_name(environment: str, workspace_id: str) -> str:
     if response.status_code == 200:
         databases = response.json().get("value", [])
         if databases:
-            db_name = databases[0]["displayName"]
-            log.info("Found SQL Database: %s", db_name)
-            return db_name
+            db      = databases[0]
+            # Use databaseName (includes GUID) not displayName
+            # e.g. "fs-av01-admin-a4dc2538-..." not just "fs-av01-admin"
+            db_name = db.get("properties", {}).get("databaseName") or db["displayName"]
+            # connectionString is the full ADO.NET connection string from Fabric
+            # We extract the Data Source (server) from it
+            # serverFqdn contains "host,port" - we only need the host
+            server_fqdn = db.get("properties", {}).get("serverFqdn", "")
+            server = server_fqdn.split(",")[0].strip() if server_fqdn else ""
+            if not server:
+                # Fallback: parse from connectionString
+                conn_str_raw = db.get("properties", {}).get("connectionString", "")
+                server = _parse_server_from_connection_string(conn_str_raw)
+            if server:
+                log.info("Found SQL Database: %s @ %s", db_name, server)
+                return db_name, server
 
-    log.warning("Could not resolve database name from API. Set %s environment variable.", env_var)
+    log.warning(
+        "Could not resolve SQL Database from API. "
+        "Set %s and %s environment variables.",
+        env_name, env_server
+    )
     sys.exit(1)
+
+
+def _parse_server_from_connection_string(conn_str: str) -> str:
+    """Extract server hostname from ADO.NET connection string."""
+    for part in conn_str.split(";"):
+        part = part.strip()
+        if part.lower().startswith("data source="):
+            server = part.split("=", 1)[1].strip()
+            # Remove port if present (e.g. server,1433)
+            return server.split(",")[0].strip()
+    return ""
 
 
 def get_sql_files(
@@ -191,14 +229,15 @@ def deploy_sql_database(
         log.error("sharedqueries path not found: %s", sharedqueries_path)
         return False
 
-    database_name = get_sql_database_name(environment, workspace_id)
-    sql_files     = get_sql_files(sharedqueries_path, start_from, end_at)
+    database_name, server = get_sql_database_info(environment, workspace_id)
+    sql_files             = get_sql_files(sharedqueries_path, start_from, end_at)
 
     log.info("=" * 50)
     log.info("SQL Database Deployment")
     log.info("  Environment : %s", environment)
     log.info("  Workspace   : %s", workspace_id)
     log.info("  Database    : %s", database_name)
+    log.info("  Server      : %s", server)
     log.info("  Files       : %d", len(sql_files))
     log.info("  Start from  : %s", start_from or "01 (first)")
     log.info("  End at      : %s", end_at or "last")
@@ -210,7 +249,7 @@ def deploy_sql_database(
             log.info("  [DRY RUN] Would run: %s", f.name)
         return True
 
-    conn_str = get_sql_connection_string(workspace_id, database_name)
+    conn_str = get_sql_connection_string(server, database_name)
 
     try:
         log.info("Connecting to SQL Database...")

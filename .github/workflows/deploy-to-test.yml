@@ -52,10 +52,7 @@ jobs:
       PYTHONIOENCODING: utf-8
 
     steps:
-
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_PAT }}
 
       - uses: actions/setup-python@v5
         with:
@@ -111,21 +108,23 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
-      # Step 4: Full init/reset only - SQL 01-06 (01 sletter all data!)
+      # Step 4: Full init/reset only - SQL 01-07
       # Kjøres kun ved full_init=true
+      # 01 sletter all data, 07 seeder metadata (idempotent)
       # -----------------------------------------------------------------------
       - name: Deploy SQL Database - full init
         if: ${{ inputs.full_init }}
         run: |
           python config/scripts/deploy_sql_database.py `
             --environment TEST `
-            --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
-            --end-at 06
+            --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }}
 
       # -----------------------------------------------------------------------
       # Step 5: Setup notebook
       # Kjøres ved full_init=true eller run_workspace_setup=true
-      # init_lakehouses=True, init_metadata_sql=False, run_pipeline=False
+      # init_lakehouses=True  - oppretter lakehouses
+      # init_metadata_sql=False - metadata er allerede seedet av SQL 07
+      # run_pipeline=True     - kjør ETL pipeline etter init
       # -----------------------------------------------------------------------
       - name: Run workspace setup
         if: ${{ inputs.full_init || inputs.run_workspace_setup }}
@@ -133,7 +132,7 @@ jobs:
           python config/scripts/run_fabric_notebook.py `
             --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
             --notebook-id ${{ vars.TEST_SETUP_NOTEBOOK_ID }} `
-            --params "{\"init_lakehouses\": true, \"init_metadata_sql\": false, \"run_pipeline\": false}"
+            --params "{\"init_lakehouses\": true, \"init_metadata_sql\": false, \"run_pipeline\": true}"
 
       # -----------------------------------------------------------------------
       # Step 6: Run unit tests
