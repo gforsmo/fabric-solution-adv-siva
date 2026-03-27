@@ -1,0 +1,22 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/variableLibrary/definition/valueSet/1.0.0/schema.json",
+  "name": "TEST",
+  "variableOverrides": [
+    {
+      "name": "LH_WORKSPACE_NAME",
+      "value": "av01-test-datastores"
+    },
+    {
+      "name": "METADATA_SERVER",
+      "value": "qdk4d5jdihvellkm2wjw25c6f4-lfe5fmony4qe7aznkiqy6irdsq"
+    },
+    {
+      "name": "ENVIRONMENT_ID",
+      "value": "5a4faa0d-e08e-4710-a9a2-6822712ee18e"
+    },
+    {
+      "name": "PROCESSING_WORKSPACE_ID",
+      "value": "b1d24959-c7cd-4f20-832d-52218f222394"
+    }
+  ]
+}
