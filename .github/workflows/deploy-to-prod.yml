@@ -115,6 +115,7 @@ jobs:
           python config/scripts/run_fabric_notebook.py `
             --workspace-id ${{ vars.PROD_PROCESSING_WORKSPACE_ID }} `
             --notebook-id ${{ vars.PROD_SETUP_NOTEBOOK_ID }} `
+            --timeout 60 `
             --params $env:NOTEBOOK_PARAMS
         shell: pwsh
 
