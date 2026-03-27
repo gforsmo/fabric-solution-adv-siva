@@ -22,7 +22,6 @@ Usage:
 
 import os
 import sys
-import json
 import argparse
 import logging
 from pathlib import Path
@@ -241,10 +240,8 @@ def update_github_variables(
 ) -> bool:
     """Update GitHub Variables for one or more environments."""
     all_ok = True
-    solution_version = config.get("solution_version", "av01")
 
     for environment in environments:
-        env_lower = environment.lower()
 
         # Get workspace IDs from environment variables (set by IaC)
         workspace_ids = {}

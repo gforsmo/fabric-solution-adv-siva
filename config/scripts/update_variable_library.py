@@ -88,12 +88,24 @@ def get_sql_databases(workspace_id: str, token: str) -> list[dict]:
 
 
 def parse_server_from_connection_string(conn_str: str) -> str:
-    """Extract server hostname from ADO.NET connection string."""
+    """
+    Extract server prefix from ADO.NET connection string.
+
+    METADATA_SERVER in Variable Library stores only the prefix part,
+    e.g. 'abc123-xyz' not 'abc123-xyz.database.fabric.microsoft.com'
+    """
     for part in conn_str.split(";"):
         part = part.strip()
         if part.lower().startswith("data source="):
             server = part.split("=", 1)[1].strip()
-            return server.split(",")[0].strip()
+            # Remove port if present
+            server = server.split(",")[0].strip()
+            # Remove .database.fabric.microsoft.com suffix if present
+            # Variable Library stores only the prefix
+            for suffix in [".database.fabric.microsoft.com", ".datawarehouse.fabric.microsoft.com"]:
+                if server.endswith(suffix):
+                    server = server[:-len(suffix)]
+            return server
     return ""
 
 
@@ -207,11 +219,22 @@ def update_value_set(environment: str, new_values: dict) -> Path:
 def git_commit_and_push(file_path: Path, environment: str) -> bool:
     """Commit and push updated Variable Library file to Git."""
     try:
+        # Configure git identity for GitHub Actions runner
+        subprocess.run(
+            ["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"],
+            check=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "github-actions[bot]"],
+            check=True
+        )
+
         subprocess.run(["git", "add", str(file_path)], check=True)
 
         result = subprocess.run(
             ["git", "diff", "--staged", "--quiet"],
-            capture_output=True
+            capture_output=True,
+            check=False  # returncode 1 = has changes, which is expected
         )
         if result.returncode == 0:
             log.info("No git changes to commit")
@@ -318,4 +341,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
