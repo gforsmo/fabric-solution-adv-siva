@@ -28,6 +28,10 @@ on:
         description: 'Skip capacity suspend (leave running for debugging)'
         type: boolean
         default: false
+      source_version:
+        description: 'Git tag eller commit SHA å deploye (default: HEAD). Bruk samme verdi i TEST og PROD for identisk versjon.'
+        required: false
+        default: 
 
 env:
   PYTHON_VERSION: '3.12'
@@ -54,6 +58,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
+          ref: ${{ inputs.source_version || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
