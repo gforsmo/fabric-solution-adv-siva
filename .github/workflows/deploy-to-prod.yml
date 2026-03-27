@@ -3,6 +3,9 @@ name: Deploy to PROD Environment
 # Manual trigger for PROD deployment using fabric-cicd.
 # Includes approval gate via GitHub Environments.
 # Resumes capacities before deployment and suspends after (cost optimization).
+#
+# After deploy, Variable Library is automatically updated with live Fabric
+# values (SQL Database endpoint, Environment ID etc.)
 on:
   workflow_dispatch:
     inputs:
@@ -41,7 +44,6 @@ jobs:
     if: ${{ always() && (needs.approval.result == 'success' || inputs.skip_approval) }}
     runs-on: windows-latest
 
-    # Common environment variables for all steps
     env:
       AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.SPN_CLIENT_SECRET }}
@@ -50,38 +52,78 @@ jobs:
       PROD_DATASTORES_WORKSPACE_ID: ${{ vars.PROD_DATASTORES_WORKSPACE_ID }}
       PROD_PROCESSING_WORKSPACE_ID: ${{ vars.PROD_PROCESSING_WORKSPACE_ID }}
       PROD_CONSUMPTION_WORKSPACE_ID: ${{ vars.PROD_CONSUMPTION_WORKSPACE_ID }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GITHUB_ACTIONS: true
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: pip install -r config/requirements.txt && pip install -e config/
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e config/
+          pip install -r config/requirements.txt
+          pip show fabric-cicd
+        shell: pwsh
 
       - name: Resume PROD capacities
         run: |
           python config/scripts/manage_capacity.py `
             --environment PROD --action resume --wait
+        shell: pwsh
 
+      # -----------------------------------------------------------------------
+      # Step 1: Deploy all Fabric items to PROD
+      # -----------------------------------------------------------------------
       - name: Deploy all workspaces to PROD
         run: |
           $cleanup = if ("${{ inputs.skip_orphan_cleanup }}" -eq "true") { "--no-cleanup" } else { "" }
           python config/scripts/deploy_with_fabric_cicd.py `
             --environment PROD --all-workspaces $cleanup
+        shell: pwsh
 
+      # -----------------------------------------------------------------------
+      # Step 2: Update Variable Library with live Fabric values
+      # -----------------------------------------------------------------------
+      - name: Update Variable Library
+        run: |
+          python config/scripts/update_variable_library.py `
+            --environment PROD `
+            --processing-workspace-id ${{ vars.PROD_PROCESSING_WORKSPACE_ID }}
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+
+      # -----------------------------------------------------------------------
+      # Step 3: Workspace setup (first deployment only)
+      # init_lakehouses=True  - oppretter lakehouses
+      # init_metadata_sql=False - metadata håndteres separat
+      # run_pipeline=False    - ikke kjør pipeline ved første deploy
+      # -----------------------------------------------------------------------
       - name: Run workspace setup
         if: ${{ inputs.run_workspace_setup }}
         run: |
+          $env:NOTEBOOK_PARAMS = '{"init_lakehouses": true, "init_metadata_sql": false, "run_pipeline": false}'
           python config/scripts/run_fabric_notebook.py `
             --workspace-id ${{ vars.PROD_PROCESSING_WORKSPACE_ID }} `
-            --notebook-id ${{ vars.PROD_SETUP_NOTEBOOK_ID }}
+            --notebook-id ${{ vars.PROD_SETUP_NOTEBOOK_ID }} `
+            --params $env:NOTEBOOK_PARAMS
+        shell: pwsh
 
+      # -----------------------------------------------------------------------
+      # Always: Suspend capacities (cost optimization)
+      # -----------------------------------------------------------------------
       - name: Suspend PROD capacities
         if: ${{ always() && !inputs.skip_capacity_suspend }}
         run: |
           python config/scripts/manage_capacity.py `
             --environment PROD --action suspend
+        shell: pwsh

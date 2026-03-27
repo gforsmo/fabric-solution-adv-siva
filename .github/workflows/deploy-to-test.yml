@@ -5,7 +5,7 @@ name: Deploy to TEST Environment
 #
 # Modes:
 #   Normal deploy : fabric-cicd deploy, ingen SQL, valgfritt setup notebook
-#   Full init     : fabric-cicd deploy, SQL 01-06 (reset!), setup notebook
+#   Full init     : fabric-cicd deploy, SQL 01-07 (reset!), setup notebook
 #
 # After deploy, Variable Library is automatically updated with live Fabric
 # values (SQL Database endpoint, Environment ID etc.)
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       full_init:
-        description: 'Full init/reset - SQL 01-06 + lakehouse setup (ADVARSEL: sletter all data!)'
+        description: 'Full init/reset - SQL 01-07 + lakehouse setup (ADVARSEL: sletter all data!)'
         type: boolean
         default: false
       run_workspace_setup:
@@ -37,7 +37,6 @@ jobs:
     name: Deploy to TEST
     runs-on: windows-latest
 
-    # Common environment variables for all steps
     env:
       AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.SPN_CLIENT_SECRET }}
@@ -53,6 +52,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
 
       - uses: actions/setup-python@v5
         with:
@@ -64,16 +65,17 @@ jobs:
           pip install -e config/
           pip install -r config/requirements.txt
           pip show fabric-cicd
+        shell: pwsh
 
       - name: Install ODBC Driver
-        run: |
-          choco install sqlserver-odbcdriver -y
+        run: choco install sqlserver-odbcdriver -y
         shell: pwsh
 
       - name: Resume TEST capacities
         run: |
           python config/scripts/manage_capacity.py `
             --environment TEST --action resume --wait
+        shell: pwsh
 
       # -----------------------------------------------------------------------
       # Step 1: Deploy all Fabric items (Notebooks, Pipelines, Lakehouse, etc.)
@@ -82,6 +84,7 @@ jobs:
         run: |
           python config/scripts/deploy_with_fabric_cicd.py `
             --environment TEST --all-workspaces
+        shell: pwsh
 
       # -----------------------------------------------------------------------
       # Step 2: Update Variable Library with live Fabric values
@@ -94,6 +97,7 @@ jobs:
           python config/scripts/update_variable_library.py `
             --environment TEST `
             --processing-workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }}
+        shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
@@ -108,7 +112,7 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
-      # Step 4: Full init/reset only - SQL 01-07
+      # Step 4: Full init/reset - SQL 01-07
       # Kjøres kun ved full_init=true
       # 01 sletter all data, 07 seeder metadata (idempotent)
       # -----------------------------------------------------------------------
@@ -118,6 +122,7 @@ jobs:
           python config/scripts/deploy_sql_database.py `
             --environment TEST `
             --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }}
+        shell: pwsh
 
       # -----------------------------------------------------------------------
       # Step 5: Setup notebook
@@ -129,10 +134,12 @@ jobs:
       - name: Run workspace setup
         if: ${{ inputs.full_init || inputs.run_workspace_setup }}
         run: |
+          $env:NOTEBOOK_PARAMS = '{"init_lakehouses": true, "init_metadata_sql": false, "run_pipeline": true}'
           python config/scripts/run_fabric_notebook.py `
             --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
             --notebook-id ${{ vars.TEST_SETUP_NOTEBOOK_ID }} `
-            --params "{\"init_lakehouses\": true, \"init_metadata_sql\": false, \"run_pipeline\": true}"
+            --params $env:NOTEBOOK_PARAMS
+        shell: pwsh
 
       # -----------------------------------------------------------------------
       # Step 6: Run unit tests
@@ -143,6 +150,7 @@ jobs:
           python config/scripts/run_fabric_notebook.py `
             --workspace-id ${{ vars.TEST_PROCESSING_WORKSPACE_ID }} `
             --notebook-id ${{ vars.TEST_UNIT_TESTS_NOTEBOOK_ID }}
+        shell: pwsh
 
       # -----------------------------------------------------------------------
       # Always: Suspend capacities (cost optimization)
@@ -152,3 +160,4 @@ jobs:
         run: |
           python config/scripts/manage_capacity.py `
             --environment TEST --action suspend
+        shell: pwsh
