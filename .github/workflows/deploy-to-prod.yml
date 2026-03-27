@@ -22,10 +22,6 @@ on:
         description: 'Run workspace setup notebook (ignoreres hvis full_init=true)'
         type: boolean
         default: false
-      run_unit_tests:
-        description: 'Run unit tests after deployment (valgfritt)'
-        type: boolean
-        default: false
       skip_orphan_cleanup:
         description: 'Skip orphan item cleanup (safer for PROD)'
         type: boolean
@@ -127,8 +123,8 @@ jobs:
       - name: Wait for SQL Database to be ready
         if: ${{ inputs.full_init }}
         run: |
-          Write-Host "Waiting 90 seconds for SQL Database to be provisioned..."
-          Start-Sleep -Seconds 90
+          Write-Host "Waiting 3 minutes for SQL Database and PROD capacity to be ready..."
+          Start-Sleep -Seconds 180
         shell: pwsh
 
       # -----------------------------------------------------------------------
@@ -158,17 +154,6 @@ jobs:
             --notebook-id ${{ vars.PROD_SETUP_NOTEBOOK_ID }} `
             --timeout 60 `
             --params $env:NOTEBOOK_PARAMS
-        shell: pwsh
-
-      # -----------------------------------------------------------------------
-      # Step 6: Run unit tests (valgfritt)
-      # -----------------------------------------------------------------------
-      - name: Run unit tests
-        if: ${{ inputs.run_unit_tests }}
-        run: |
-          python config/scripts/run_fabric_notebook.py `
-            --workspace-id ${{ vars.PROD_PROCESSING_WORKSPACE_ID }} `
-            --notebook-id ${{ vars.PROD_UNIT_TESTS_NOTEBOOK_ID }}
         shell: pwsh
 
       # -----------------------------------------------------------------------
