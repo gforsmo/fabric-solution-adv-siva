@@ -153,3 +153,23 @@ GO
 -- 05_create_users_and_security.sql
 -- 06_migrate_add_handler_and_pipeline_columns.sql
 -- 07_seed_initial_metadata.sql
+-- ============================================
+-- Re-create SPN user after reset
+-- Must run immediately after reset so subsequent
+-- SQL files can execute with SPN credentials
+-- ============================================
+IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sp-av-github')
+    CREATE USER [sp-av-github] FROM EXTERNAL PROVIDER
+GO
+
+IF EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sp-av-github')
+BEGIN
+    IF NOT EXISTS (
+        SELECT * FROM sys.database_role_members rm
+        JOIN sys.database_principals r ON rm.role_principal_id = r.principal_id
+        JOIN sys.database_principals m ON rm.member_principal_id = m.principal_id
+        WHERE r.name = 'db_owner' AND m.name = 'sp-av-github'
+    )
+        ALTER ROLE db_owner ADD MEMBER [sp-av-github]
+END
+GO
