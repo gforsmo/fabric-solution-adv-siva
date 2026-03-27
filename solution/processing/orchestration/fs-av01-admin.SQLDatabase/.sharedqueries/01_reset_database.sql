@@ -153,14 +153,18 @@ GO
 -- 05_create_users_and_security.sql
 -- 06_migrate_add_handler_and_pipeline_columns.sql
 -- 07_seed_initial_metadata.sql
+
 -- ============================================
 -- Re-create SPN user after reset
--- Must run immediately after reset so subsequent
--- SQL files can execute with SPN credentials
+-- NOTE: CREATE USER FROM EXTERNAL PROVIDER is not supported
+-- in Fabric SQL Database without Managed Identity.
+-- Must be done manually once in Fabric UI:
+--   CREATE USER [sp-av-github] FROM EXTERNAL PROVIDER
 -- ============================================
-IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sp-av-github')
-    CREATE USER [sp-av-github] FROM EXTERNAL PROVIDER
-GO
+
+-- IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sp-av-github')
+--     CREATE USER [sp-av-github] FROM EXTERNAL PROVIDER
+-- GO
 
 IF EXISTS (SELECT * FROM sys.database_principals WHERE name = 'sp-av-github')
 BEGIN
