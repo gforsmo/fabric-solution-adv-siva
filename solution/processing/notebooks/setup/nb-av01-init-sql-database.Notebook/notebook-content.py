@@ -595,35 +595,3 @@ for table in tables_to_check:
 # META   "language_group": "synapse_pyspark"
 # META }
 
-# CELL ********************
-
-# Check if data already exists (use metadata.log_store as indicator)
-if table_has_data("metadata.log_store"):
-    print("Seed data already exists - skipping seeding")
-else:
-    # Seed instruction tables
-    instr_rows = 0
-    instr_rows += write_seed_table("instructions.ingestion", ingestion_schema, ingestion_data)
-    instr_rows += write_seed_table("instructions.loading", loading_schema, loading_data)
-    instr_rows += write_seed_table("instructions.transformations", transformations_schema, transformations_data)
-    instr_rows += write_seed_table("instructions.validations", validations_schema, validations_data)
-
-    # Seed metadata store tables
-    total_rows = 0
-    total_rows += write_seed_table("metadata.log_store", log_store_schema, log_store_data)
-    total_rows += write_seed_table("metadata.source_store", source_store_schema, source_store_data)
-    total_rows += write_seed_table("metadata.loading_store", loading_store_schema, loading_store_data)
-    total_rows += write_seed_table("metadata.transform_store", transform_store_schema, transform_store_data)
-    total_rows += write_seed_table("metadata.expectation_store", expectation_store_schema, expectation_store_data)
-    total_rows += write_seed_table("metadata.column_mappings", column_mappings_schema, column_mappings_data)
-
-    print(f"Seeded {instr_rows} instruction rows and {total_rows} metadata rows")
-
-
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
