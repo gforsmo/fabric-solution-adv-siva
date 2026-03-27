@@ -9,6 +9,18 @@
     {
       "name": "PROCESSING_WORKSPACE_ID",
       "value": "f63814a5-3deb-43d8-a82a-e7f6ad9ea355"
+    },
+    {
+      "name": "METADATA_SERVER",
+      "value": "qdk4d5jdihvellkm2wjw25c6f4-uukdr5xlhxmehkbk473k3hvdku"
+    },
+    {
+      "name": "METADATA_DB",
+      "value": "fs-av01-admin-c30ccc5f-034d-4946-9424-73a025bc7bf0"
+    },
+    {
+      "name": "ENVIRONMENT_ID",
+      "value": "60dde9e5-e17a-4364-a931-57cd3d98c2a8"
     }
   ]
 }
