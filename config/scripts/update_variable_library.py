@@ -233,8 +233,7 @@ def git_commit_and_push(file_path: Path, environment: str) -> bool:
 
         result = subprocess.run(
             ["git", "diff", "--staged", "--quiet"],
-            capture_output=True,
-            check=False  # returncode 1 = has changes, which is expected
+            capture_output=True
         )
         if result.returncode == 0:
             log.info("No git changes to commit")
@@ -245,7 +244,23 @@ def git_commit_and_push(file_path: Path, environment: str) -> bool:
              f"chore: update Variable Library {environment} with live Fabric values [skip ci]"],
             check=True
         )
-        subprocess.run(["git", "push"], check=True)
+
+        # Use GH_PAT token for push authentication in GitHub Actions
+        gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT")
+        if gh_token:
+            remote = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                capture_output=True, text=True, check=True
+            )
+            remote_url = remote.stdout.strip()
+            auth_url = remote_url.replace(
+                "https://github.com/",
+                f"https://x-access-token:{gh_token}@github.com/"
+            )
+            subprocess.run(["git", "push", auth_url, "HEAD"], check=True)
+        else:
+            subprocess.run(["git", "push"], check=True)
+
         log.info("Committed and pushed Variable Library update")
         return True
 
@@ -341,3 +356,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
