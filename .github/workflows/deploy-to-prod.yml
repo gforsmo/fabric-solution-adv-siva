@@ -4,8 +4,9 @@ name: Deploy to PROD Environment
 # Includes approval gate via GitHub Environments.
 # Resumes capacities before deployment and suspends after (cost optimization).
 #
-# After deploy, Variable Library is automatically updated with live Fabric
-# values (SQL Database endpoint, Environment ID etc.)
+# Modes:
+#   Normal deploy : fabric-cicd deploy, ingen SQL, valgfritt setup notebook
+#   Full init     : fabric-cicd deploy, SQL 01-07 (reset!), setup notebook
 on:
   workflow_dispatch:
     inputs:
@@ -13,8 +14,16 @@ on:
         description: 'Skip manual approval (emergency only)'
         type: boolean
         default: false
+      full_init:
+        description: 'Full init/reset - SQL 01-07 + lakehouse setup (ADVARSEL: sletter all data!)'
+        type: boolean
+        default: false
       run_workspace_setup:
-        description: 'Run workspace setup notebook (first deployment only)'
+        description: 'Run workspace setup notebook (ignoreres hvis full_init=true)'
+        type: boolean
+        default: false
+      run_unit_tests:
+        description: 'Run unit tests after deployment (valgfritt)'
         type: boolean
         default: false
       skip_orphan_cleanup:
@@ -74,6 +83,11 @@ jobs:
           pip show fabric-cicd
         shell: pwsh
 
+      - name: Install ODBC Driver
+        if: ${{ inputs.full_init }}
+        run: choco install sqlserver-odbcdriver -y
+        shell: pwsh
+
       - name: Resume PROD capacities
         run: |
           python config/scripts/manage_capacity.py `
@@ -103,13 +117,35 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
       # -----------------------------------------------------------------------
-      # Step 3: Workspace setup (first deployment only)
+      # Step 3: Wait for SQL Database (full init only)
+      # -----------------------------------------------------------------------
+      - name: Wait for SQL Database to be ready
+        if: ${{ inputs.full_init }}
+        run: |
+          Write-Host "Waiting 90 seconds for SQL Database to be provisioned..."
+          Start-Sleep -Seconds 90
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # Step 4: Full init/reset - SQL 01-07 (full init only)
+      # -----------------------------------------------------------------------
+      - name: Deploy SQL Database - full init
+        if: ${{ inputs.full_init }}
+        run: |
+          python config/scripts/deploy_sql_database.py `
+            --environment PROD `
+            --workspace-id ${{ vars.PROD_PROCESSING_WORKSPACE_ID }}
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # Step 5: Setup notebook
+      # Kjøres ved full_init=true eller run_workspace_setup=true
       # init_lakehouses=True  - oppretter lakehouses
-      # init_metadata_sql=False - metadata håndteres separat
-      # run_pipeline=False    - ikke kjør pipeline ved første deploy
+      # init_metadata_sql=False - metadata er allerede seedet av SQL 07
+      # run_pipeline=False    - ikke kjør pipeline ved første deploy i PROD
       # -----------------------------------------------------------------------
       - name: Run workspace setup
-        if: ${{ inputs.run_workspace_setup }}
+        if: ${{ inputs.full_init || inputs.run_workspace_setup }}
         run: |
           $env:NOTEBOOK_PARAMS = '{"init_lakehouses": true, "init_metadata_sql": false, "run_pipeline": false}'
           python config/scripts/run_fabric_notebook.py `
@@ -117,6 +153,17 @@ jobs:
             --notebook-id ${{ vars.PROD_SETUP_NOTEBOOK_ID }} `
             --timeout 60 `
             --params $env:NOTEBOOK_PARAMS
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # Step 6: Run unit tests (valgfritt)
+      # -----------------------------------------------------------------------
+      - name: Run unit tests
+        if: ${{ inputs.run_unit_tests }}
+        run: |
+          python config/scripts/run_fabric_notebook.py `
+            --workspace-id ${{ vars.PROD_PROCESSING_WORKSPACE_ID }} `
+            --notebook-id ${{ vars.PROD_UNIT_TESTS_NOTEBOOK_ID }}
         shell: pwsh
 
       # -----------------------------------------------------------------------
