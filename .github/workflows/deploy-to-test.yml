@@ -7,11 +7,18 @@ name: Deploy to TEST Environment
 #   Normal deploy : fabric-cicd deploy, ingen SQL, valgfritt setup notebook
 #   Full init     : fabric-cicd deploy, SQL 01-07 (reset!), setup notebook
 #
-# After deploy, Variable Library is automatically updated with live Fabric
-# values (SQL Database endpoint, Environment ID etc.)
+# Versioning:
+#   Sett Git tag på main før kjøring (auto-satt av sync-to-dev.yml ved merge).
+#   Oppgi taggen som source_version, f.eks. v1.5
+#   Workflowen oppretter test/v1.5 etter vellykket deploy.
+#   Bruk samme tag i deploy-to-prod.yml for identisk versjon i PROD.
 on:
   workflow_dispatch:
     inputs:
+      source_version:
+        description: 'Git tag å deploye, f.eks. v1.5 — se tags på main'
+        required: true
+        default: ''
       full_init:
         description: 'Full init/reset - SQL 01-07 + lakehouse setup (ADVARSEL: sletter all data!)'
         type: boolean
@@ -28,10 +35,6 @@ on:
         description: 'Skip capacity suspend (leave running for debugging)'
         type: boolean
         default: false
-      source_version:
-        description: 'Git tag eller commit SHA å deploye (default: HEAD). Bruk samme verdi i TEST og PROD for identisk versjon.'
-        required: false
-        default: 
 
 env:
   PYTHON_VERSION: '3.12'
@@ -58,7 +61,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
-          ref: ${{ inputs.source_version || github.ref }}
+          ref: ${{ inputs.source_version }}
+          fetch-tags: true
 
       - uses: actions/setup-python@v5
         with:
@@ -132,9 +136,9 @@ jobs:
       # -----------------------------------------------------------------------
       # Step 5: Setup notebook
       # Kjøres ved full_init=true eller run_workspace_setup=true
-      # init_lakehouses=True  - oppretter lakehouses
-      # init_metadata_sql=False - metadata er allerede seedet av SQL 07
-      # run_pipeline=True     - kjør ETL pipeline etter init
+      # init_lakehouses=True      - oppretter lakehouses
+      # init_metadata_sql=False   - metadata er allerede seedet av SQL 07
+      # run_pipeline=True         - kjør ETL pipeline etter init
       # -----------------------------------------------------------------------
       - name: Run workspace setup
         if: ${{ inputs.full_init || inputs.run_workspace_setup }}
@@ -159,6 +163,32 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
+      # Step 7: Tag denne TEST-deployen med test/{source_version}
+      # Opprettes kun ved suksess. Hvis taggen allerede finnes (re-deploy av
+      # samme versjon) hoppes den over uten feil.
+      # Eksempel: source_version=v1.5 → test/v1.5
+      # -----------------------------------------------------------------------
+      - name: Create TEST version tag
+        run: |
+          $sourceTag = "${{ inputs.source_version }}"
+          $testTag   = "test/$sourceTag"
+
+          git fetch --tags --quiet
+
+          if (git tag -l $testTag) {
+            Write-Host "Tag $testTag eksisterer allerede — ingen endring"
+          } else {
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag $testTag
+            git push origin $testTag
+            Write-Host "✅ Tagged TEST deploy as: $testTag"
+          }
+
+          echo "DEPLOY_TAG=$testTag" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
       # Always: Suspend capacities (cost optimization)
       # -----------------------------------------------------------------------
       - name: Suspend TEST capacities
@@ -166,4 +196,22 @@ jobs:
         run: |
           python config/scripts/manage_capacity.py `
             --environment TEST --action suspend
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # Always: Print deploy summary
+      # -----------------------------------------------------------------------
+      - name: Deploy summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host " TEST DEPLOY SUMMARY"
+          Write-Host "========================================="
+          Write-Host " Tag             : $env:DEPLOY_TAG"
+          Write-Host " Source version  : ${{ inputs.source_version }}"
+          Write-Host " Full init       : ${{ inputs.full_init }}"
+          Write-Host " Workspace setup : ${{ inputs.full_init || inputs.run_workspace_setup }}"
+          Write-Host " Unit tests      : ${{ inputs.run_unit_tests }}"
+          Write-Host "========================================="
         shell: pwsh
