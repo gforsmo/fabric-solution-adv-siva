@@ -214,7 +214,8 @@ def update_github_variables_for_environment(
 
     # Resolve notebook IDs from Fabric
     log.info("Fetching notebook IDs from Fabric...")
-    notebook_ids = resolve_notebook_ids(processing_id, fabric_token)
+    
+    notebook_ids = resolve_notebook_ids(processing_id, fabric_token, environment)
 
     # Build full variable map
     variables = {}
