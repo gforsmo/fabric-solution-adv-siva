@@ -12,18 +12,23 @@ jobs:
   sync-dev-workspaces:
     if: github.event.pull_request.merged == true
     runs-on: windows-latest
+
     env:
       AZURE_CLIENT_ID: ${{ secrets.SPN_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.SPN_CLIENT_SECRET }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       GITHUB_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GITHUB_ACTIONS: true
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-tags: true
 
       - uses: actions/setup-python@v5
         with:
@@ -39,3 +44,61 @@ jobs:
         run: python config/scripts/sync_dev_workspaces_from_main.py
         env:
           CONFIG_FILE: config/v01/v01-template.yml
+
+      # -------------------------------------------------------------------
+      # Auto-tag release etter merge til main
+      # Leser PR-labels for å bestemme major vs minor bump.
+      # Label "release: major" → bumper major, nullstiller minor
+      # Alt annet (inkl. ingen label) → bumper minor
+      # Eksempel: v1.3 → v1.4  eller  v1.3 → v2.0
+      # -------------------------------------------------------------------
+      - name: Create release tag
+        run: |
+          git fetch --tags --quiet
+
+          # Les PR-labels fra GitHub context
+          $labels = '${{ toJson(github.event.pull_request.labels.*.name) }}'
+          $isMajor = $labels -match "release: major"
+
+          # Finn høyeste eksisterende v{major}.{minor} tag
+          $allTags = git tag -l "v*.*" 2>$null | Where-Object { $_ -match '^v\d+\.\d+$' }
+          $latestMajor = 0
+          $latestMinor = 0
+
+          foreach ($tag in $allTags) {
+            if ($tag -match '^v(\d+)\.(\d+)$') {
+              $maj = [int]$Matches[1]
+              $min = [int]$Matches[2]
+              if ($maj -gt $latestMajor -or ($maj -eq $latestMajor -and $min -gt $latestMinor)) {
+                $latestMajor = $maj
+                $latestMinor = $min
+              }
+            }
+          }
+
+          # Beregn ny versjon
+          if ($isMajor) {
+            $newMajor = $latestMajor + 1
+            $newMinor = 0
+          } else {
+            $newMajor = $latestMajor
+            $newMinor = $latestMinor + 1
+          }
+
+          $newTag = "v$newMajor.$newMinor"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag $newTag
+          git push origin $newTag
+
+          Write-Host "✅ Released: $newTag (fra v$latestMajor.$latestMinor)"
+          echo "RELEASE_TAG=$newTag" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Release summary
+        if: always()
+        run: |
+          Write-Host "PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"
+          Write-Host "Release tag: $env:RELEASE_TAG"
+        shell: pwsh
