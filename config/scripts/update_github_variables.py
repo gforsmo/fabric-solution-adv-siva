@@ -47,13 +47,20 @@ if sys.stdout.encoding != "utf-8":
 # ---------------------------------------------------------------------------
 # Constants — notebook names to look up
 # ---------------------------------------------------------------------------
-NOTEBOOK_MAP = {
-    "SETUP_NOTEBOOK_ID":         "nb-av01-new-workspace-setup",
-    "UNIT_TESTS_NOTEBOOK_ID":    "nb-av01-unit-tests",
-    "DAILY_REFRESH_NOTEBOOK_ID": "nb-av01-run",
+
+NOTEBOOK_MAP: dict[str, dict[str, str]] = {
+    "DEV":  {
+        "SETUP_NOTEBOOK_ID": "nb-av01-new-workspace-setup",
+    },
+    "TEST": {
+        "SETUP_NOTEBOOK_ID":      "nb-av01-new-workspace-setup",
+        "UNIT_TESTS_NOTEBOOK_ID": "nb-av01-unit-tests",
+    },
+    "PROD": {
+        "SETUP_NOTEBOOK_ID":         "nb-av01-new-workspace-setup",
+        "DAILY_REFRESH_NOTEBOOK_ID": "nb-av01-run",
+    },
 }
-
-
 # ---------------------------------------------------------------------------
 # Fabric API helpers
 # ---------------------------------------------------------------------------
