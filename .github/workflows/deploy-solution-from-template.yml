@@ -70,7 +70,6 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Provision Fabric infrastructure
         run: python config/scripts/generate_solution_from_yml_simple.py
-        shell: bash
         env:
           CONFIG_FILE: ${{ github.event.inputs.config_file }}
 
