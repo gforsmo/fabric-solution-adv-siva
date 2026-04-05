@@ -30,6 +30,47 @@ if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
 
+# ---------------------------------------------------------------------------
+# GitHub Actions environment bridge
+# Writes a key=value pair to $GITHUB_ENV so subsequent steps in the same
+# job can read it via os.environ. Has no effect when running locally.
+# ---------------------------------------------------------------------------
+
+def write_to_github_env(key: str, value: str) -> None:
+    """Expose a value to subsequent GitHub Actions steps via $GITHUB_ENV."""
+    github_env = os.environ.get("GITHUB_ENV")
+    if not github_env:
+        log.debug("GITHUB_ENV not set — running locally, skipping")
+        return
+    with open(github_env, "a", encoding="utf-8") as f:
+        f.write(f"{key}={value}\n")
+    log.info("  → GITHUB_ENV: %s = %s", key, value)
+
+
+def resolve_workspace_variable_name(workspace_config: dict) -> str | None:
+    """
+    Derive the GitHub Variable name for a workspace, e.g.
+    TEST_PROCESSING_WORKSPACE_ID, from the workspace config.
+
+    Uses the 'type' field (processing | datastores | consumption) which exists
+    in the YAML template, and infers environment (DEV | TEST | PROD) from the
+    workspace name (e.g. 'av01-test-processing' → TEST).
+
+    Returns None if either cannot be determined — no existing logic is affected.
+    """
+    name           = workspace_config.get("name", "").lower()
+    workspace_type = workspace_config.get("type", "").upper()
+
+    if not workspace_type:
+        return None
+
+    for env in ["DEV", "TEST", "PROD"]:
+        if env.lower() in name:
+            return f"{env}_{workspace_type}_WORKSPACE_ID"
+
+    return None
+
+
 def get_fabric_token():
     """Get Bearer token for Fabric REST API calls."""
     log.info("Fetching Fabric API token")
@@ -96,6 +137,13 @@ def main():
 
         log.info("Workspace created: %s (%s)", workspace_name, workspace_id)
 
+        # ── Bridge workspace ID to subsequent GitHub Actions steps ────────────
+        # Derives variable name from workspace_config fields 'environment' and
+        # 'workspace_type'. If those fields are absent, this is a no-op.
+        var_name = resolve_workspace_variable_name(workspace_config)
+        if var_name:
+            write_to_github_env(var_name, workspace_id)
+
         if 'permissions' in workspace_config:
             log.info("Assigning permissions for %s", workspace_name)
             assign_permissions(
@@ -144,4 +192,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
