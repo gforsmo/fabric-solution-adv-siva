@@ -7,9 +7,17 @@ name: Deploy to PROD Environment
 # Modes:
 #   Normal deploy : fabric-cicd deploy, ingen SQL, valgfritt setup notebook
 #   Full init     : fabric-cicd deploy, SQL 01-07 (reset!), setup notebook
+#
+# Versioning:
+#   Bruk samme source_version som ble deployet til TEST (f.eks. v1.5).
+#   Workflowen oppretter prod/v1.5 etter vellykket deploy.
 on:
   workflow_dispatch:
     inputs:
+      source_version:
+        description: 'Git tag å deploye, f.eks. v1.5 — bruk samme som i TEST'
+        required: true
+        default: ''
       skip_approval:
         description: 'Skip manual approval (emergency only)'
         type: boolean
@@ -30,10 +38,6 @@ on:
         description: 'Skip capacity suspend (leave running)'
         type: boolean
         default: false
-      source_version:
-        description: 'Git tag eller commit SHA å deploye (default: HEAD). Bruk samme verdi i TEST og PROD for identisk versjon.'
-        required: false
-        default: 
 
 env:
   PYTHON_VERSION: '3.12'
@@ -70,7 +74,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
-          ref: ${{ inputs.source_version || github.ref }}
+          ref: ${{ inputs.source_version }}
+          fetch-tags: true
 
       - uses: actions/setup-python@v5
         with:
@@ -157,6 +162,32 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
+      # Step 6: Tag denne PROD-deployen med prod/{source_version}
+      # Opprettes kun ved suksess. Hvis taggen allerede finnes (re-deploy av
+      # samme versjon) hoppes den over uten feil.
+      # Eksempel: source_version=v1.5 → prod/v1.5
+      # -----------------------------------------------------------------------
+      - name: Create PROD version tag
+        run: |
+          $sourceTag = "${{ inputs.source_version }}"
+          $prodTag   = "prod/$sourceTag"
+
+          git fetch --tags --quiet
+
+          if (git tag -l $prodTag) {
+            Write-Host "Tag $prodTag eksisterer allerede — ingen endring"
+          } else {
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag $prodTag
+            git push origin $prodTag
+            Write-Host "✅ Tagged PROD deploy as: $prodTag"
+          }
+
+          echo "DEPLOY_TAG=$prodTag" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
       # Always: Suspend capacities (cost optimization)
       # -----------------------------------------------------------------------
       - name: Suspend PROD capacities
@@ -164,4 +195,22 @@ jobs:
         run: |
           python config/scripts/manage_capacity.py `
             --environment PROD --action suspend
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # Always: Print deploy summary
+      # -----------------------------------------------------------------------
+      - name: Deploy summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host " PROD DEPLOY SUMMARY"
+          Write-Host "========================================="
+          Write-Host " Tag             : $env:DEPLOY_TAG"
+          Write-Host " Source version  : ${{ inputs.source_version }}"
+          Write-Host " Full init       : ${{ inputs.full_init }}"
+          Write-Host " Workspace setup : ${{ inputs.full_init || inputs.run_workspace_setup }}"
+          Write-Host " Approved by     : ${{ github.actor }}"
+          Write-Host "========================================="
         shell: pwsh
