@@ -84,22 +84,26 @@ def get_workspace_items(workspace_id: str, token: str, item_type: str) -> list[d
     return response.json().get("value", [])
 
 
-def resolve_notebook_ids(workspace_id: str, token: str) -> dict[str, str]:
-    """Fetch notebook IDs from workspace and map to GitHub Variable names."""
+def resolve_notebook_ids(
+    workspace_id: str,
+    token: str,
+    environment: str,
+) -> dict[str, str]:
+    """Fetch notebook IDs from workspace, filtered by environment."""
     notebooks = get_workspace_items(workspace_id, token, "Notebook")
     name_to_id = {nb["displayName"]: nb["id"] for nb in notebooks}
 
+    env_map = NOTEBOOK_MAP.get(environment.upper(), {})
     result = {}
-    for var_suffix, notebook_name in NOTEBOOK_MAP.items():
+    for var_suffix, notebook_name in env_map.items():
         nb_id = name_to_id.get(notebook_name)
         if nb_id:
             result[var_suffix] = nb_id
             log.info("  Found %-35s → %s", notebook_name, nb_id)
         else:
-            log.warning("  Notebook not found: %s", notebook_name)
+            log.warning("  Notebook not found in %s: %s", environment, notebook_name)
 
     return result
-
 
 # ---------------------------------------------------------------------------
 # GitHub API helpers
