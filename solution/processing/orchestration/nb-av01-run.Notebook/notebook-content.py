@@ -24,7 +24,7 @@
 
 # CELL ********************
 
-#%run nb-av01-0-ingest-api
+%run nb-av01-0-ingest-api
 
 
 # METADATA ********************
@@ -36,7 +36,7 @@
 
 # CELL ********************
 
-#%run nb-av01-1-load
+%run nb-av01-1-load
 
 
 # METADATA ********************
@@ -48,7 +48,7 @@
 
 # CELL ********************
 
-#%run nb-av01-2-clean
+%run nb-av01-2-clean
 
 
 # METADATA ********************
@@ -60,7 +60,7 @@
 
 # CELL ********************
 
-#%run nb-av01-3-model
+%run nb-av01-3-model
 
 
 # METADATA ********************
@@ -72,7 +72,7 @@
 
 # CELL ********************
 
-#%run nb-av01-4-validate
+%run nb-av01-4-validate
 
 # METADATA ********************
 
@@ -83,7 +83,8 @@
 
 # CELL ********************
 
-notebookutils.notebook.run("nb-av01-0-ingest-api", 300)
+'''
+notebookutils.notebook.run("nb-av01-0-ingest-api", 3600)
 
 notebookutils.notebook.run("nb-av01-1-load", 300)
 
@@ -92,6 +93,7 @@ notebookutils.notebook.run("nb-av01-2-clean", 300)
 notebookutils.notebook.run("nb-av01-3-model", 300)
 
 notebookutils.notebook.run("nb-av01-4-validate", 300)
+'''
 
 # METADATA ********************
 
