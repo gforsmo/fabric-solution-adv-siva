@@ -109,7 +109,6 @@ PIPELINE_NAME = first_instr.get("pipeline_name", "data_pipeline")
 NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-2-clean")
 
 
-
 def clean_executor(spark, instr):
     """Execute a single clean/transform instruction. Returns (row_count, source_name, detail)."""
     source_path = BRONZE_BASE_PATH + instr["source_table"]

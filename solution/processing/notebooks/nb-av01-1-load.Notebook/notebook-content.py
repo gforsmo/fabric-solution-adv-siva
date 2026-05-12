@@ -48,6 +48,9 @@ variables = notebookutils.variableLibrary.getLibrary("vl-av01-variables")
 RAW_BASE_PATH = construct_abfs_path(variables.LH_WORKSPACE_NAME, variables.BRONZE_LH_NAME, area="Files")
 BRONZE_BASE_PATH = construct_abfs_path(variables.LH_WORKSPACE_NAME, variables.BRONZE_LH_NAME, area="Tables")
 
+# Øverst i load-notebooken — før execute_pipeline_stage
+LOAD_START_TS = datetime.now()
+
 # METADATA ********************
 
 # META {
@@ -66,6 +69,20 @@ set_metadata_db_url(
     server=variables.METADATA_SERVER,
     database=variables.METADATA_DB
 )
+
+set_admin_lakehouse(
+    workspace = variables.LH_WORKSPACE_NAME,
+    lakehouse = "lh_av01_admin"
+)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # Load loading store for function lookup (loading_id -> function_name)
 loading_lookup = load_loading_store(spark)
@@ -86,18 +103,7 @@ loading_instructions = get_active_instructions(spark, "loading", layer="bronze")
 
 # CELL ********************
 
-print(loading_lookup)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-print(loading_instructions)
+display(loading_instructions)
 
 # METADATA ********************
 
@@ -145,6 +151,17 @@ def load_executor(spark, instr):
     source_path = build_source_path(RAW_BASE_PATH, instr["source_path"])
     target_path = f"{BRONZE_BASE_PATH}{instr['target_table']}"
 
+    # ── Sjekk at det finnes filer ─────────────────────────────────────────────
+    try:
+        files = [f for f in notebookutils.fs.ls(source_path)
+                 if not f.isDir and f.name.endswith((".json", ".jsonl"))]
+        if not files:
+            print(f"  -> Ingen nye filer i {instr['source_path']} – hopper over")
+            return (0, instr["source_path"], instr["target_table"])
+    except Exception:
+        print(f"  -> Mappe finnes ikke – hopper over")
+        return (0, instr["source_path"], instr["target_table"])
+
     # Parse optional JSON fields
     load_params = json.loads(instr["load_params"]) if instr.get("load_params") else {}
     merge_columns = json.loads(instr["merge_columns"]) if instr.get("merge_columns") else None
@@ -154,14 +171,26 @@ def load_executor(spark, instr):
 
     print(f"Loading: {instr['source_path']} -> {instr['target_table']}")
 
+    #row_count = loading_func(
+    #    spark=spark,
+    #    source_path=source_path,
+    #    target_path=target_path,
+    #    column_mapping_id=load_params.get("column_mapping_id"),
+    #    merge_condition=instr["merge_condition"],
+    #    merge_type=instr["merge_type"],
+    #    merge_columns=merge_columns
+    #)
+
     row_count = loading_func(
-        spark=spark,
-        source_path=source_path,
-        target_path=target_path,
-        column_mapping_id=load_params.get("column_mapping_id"),
-        merge_condition=instr["merge_condition"],
-        merge_type=instr["merge_type"],
-        merge_columns=merge_columns
+        spark             = spark,
+        source_path       = source_path,
+        target_path       = target_path,
+        column_mapping_id = load_params.get("column_mapping_id"),
+        merge_condition   = instr["merge_condition"],
+        merge_type        = instr["merge_type"],
+        merge_columns     = merge_columns,
+        key_columns       = json.loads(instr["key_columns"]) if instr.get("key_columns") else [],
+        load_params       = load_params
     )
 
     print(f"  -> Loaded {row_count} rows")
@@ -178,6 +207,50 @@ execute_pipeline_stage(
     log_lookup=log_lookup
 )
 
+
+
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# Siste celle
+LOAD_STATUS          = "OK"
+LOAD_CRITICAL_ERRORS = 0
+LOAD_WARNING_ERRORS  = 0
+
+critical = spark.sql(f"""
+    SELECT COUNT(*) as n 
+    FROM `av01-dev-datastores`.`lh_av01_admin`.quarantine.loading_errors
+    WHERE error_code = 'E005'
+    AND _loading_ts >= '{LOAD_START_TS}'
+""").collect()[0]["n"]
+
+warnings = spark.sql(f"""
+    SELECT COUNT(*) as n 
+    FROM `av01-dev-datastores`.`lh_av01_admin`.quarantine.loading_errors
+    WHERE error_code != 'E005'
+    AND _loading_ts >= '{LOAD_START_TS}'
+""").collect()[0]["n"]
+
+if critical > 0:
+    LOAD_STATUS          = "ERROR"
+    LOAD_CRITICAL_ERRORS = critical
+elif warnings > 0:
+    LOAD_STATUS         = "WARNING"
+    LOAD_WARNING_ERRORS = warnings
+
+print(f"=== LOAD FULLFØRT ===")
+print(f"  Status   : {LOAD_STATUS}")
+print(f"  Kritiske : {LOAD_CRITICAL_ERRORS}")
+print(f"  Advarsler: {LOAD_WARNING_ERRORS}")
+
+notebookutils.notebook.exit(LOAD_STATUS)
 
 # METADATA ********************
 
