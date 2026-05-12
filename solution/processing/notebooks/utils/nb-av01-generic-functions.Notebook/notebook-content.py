@@ -34,6 +34,7 @@
 import json
 from datetime import datetime
 
+
 # Fabric/Spark
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
@@ -50,6 +51,18 @@ import requests
 
 # MSAL for SPN authentication to Key Vault
 import msal
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+spark.conf.set("spark.sql.parquet.datetimeRebaseModeInWrite", "CORRECTED")
+spark.conf.set("spark.sql.avro.datetimeRebaseModeInWrite", "CORRECTED")
 
 # METADATA ********************
 
@@ -137,6 +150,28 @@ def set_metadata_db_url(server: str, database: str):
 # META   "language_group": "synapse_pyspark"
 # META }
 
+# CELL ********************
+
+# Admin lakehouse konfigurasjon – settes av orchestrator via set_admin_lakehouse()
+ADMIN_LH_WORKSPACE = None
+ADMIN_LH_NAME      = None
+
+def set_admin_lakehouse(workspace: str, lakehouse: str):
+    """
+    Konfigurerer admin lakehouse for watermark-lesing/-skriving.
+    Kalles én gang ved oppstart i orchestrator-notebooken.
+    """
+    global ADMIN_LH_WORKSPACE, ADMIN_LH_NAME
+    ADMIN_LH_WORKSPACE = workspace
+    ADMIN_LH_NAME      = lakehouse
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
 # MARKDOWN ********************
 
 #  **Helper Functions**
@@ -191,7 +226,7 @@ def construct_abfs_path(workspace: str, lakehouse: str, area: str = "Tables") ->
     return f"abfss://{workspace}@onelake.dfs.fabric.microsoft.com/{lakehouse}.Lakehouse/{area}/"
 
 
-def get_most_recent_file(base_path: str, folder: str):
+def get_most_recent_file_old(base_path: str, folder: str):
     """
     Find most recent file in folder by modifyTime.
 
@@ -210,6 +245,16 @@ def get_most_recent_file(base_path: str, folder: str):
     if not files:
         raise FileNotFoundError(f"No files found in {full_path}")
     return max(files, key=lambda f: f.modifyTime)
+
+
+
+def get_most_recent_file(base_path: str, prefix: str):
+    files = [f for f in notebookutils.fs.ls(base_path)
+             if not f.isDir and f.name.endswith((".json", ".jsonl"))]
+    if not files:
+        return None
+    return max(files, key=lambda f: f.modifyTime)
+
 
 
 def build_source_path(base_path: str, source_path: str) -> str:
@@ -245,14 +290,23 @@ def write_to_landing_zone(items: list, base_path: str, landing_path: str) -> int
     Returns:
         Number of items written
     """
-    item_count = len(items)
-    output_path = f"{base_path}{landing_path}"
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = f"{output_path}{timestamp}.json"
+    # org skal fjernes
+    #item_count = len(items)
+    #output_path = f"{base_path}{landing_path}"
+    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #file_path = f"{output_path}{timestamp}.json"
 
-    output_data = {"items": items} if item_count > 1 else (items[0] if items else {})
-    json_content = json.dumps(output_data, indent=2)
-    notebookutils.fs.put(file_path, json_content, overwrite=True)
+    #output_data = {"items": items} if item_count > 1 else (items[0] if items else {})
+    #json_content = json.dumps(output_data, indent=2)
+    #notebookutils.fs.put(file_path, json_content, overwrite=True)
+
+    #return item_count
+
+    item_count  = len(items)
+    file_path   = f"{base_path}{landing_path}{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    output_data = {"items": items}  # ← alltid wrapper, også for enkelt-item
+    notebookutils.fs.put(file_path, json.dumps(output_data, ensure_ascii=False, indent=2), overwrite=True)
+    print(f"  -> Skrevet {item_count} items → {file_path}")
 
     return item_count
 
@@ -316,6 +370,42 @@ def get_api_key_from_keyvault(key_vault_url: str, secret_name: str) -> str:
         return notebookutils.credentials.getSecret(key_vault_url, secret_name)
 
 
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# transform_id=8
+def generate_date_dimension(df, start_year: int, end_year: int, **ctx):
+    spark = ctx.get("spark")
+    return spark.sql(f"""
+        SELECT explode(sequence(
+            to_date('{start_year}-01-01'),
+            to_date('{end_year}-12-31'),
+            interval 1 day
+        )) AS dato
+    """).select(
+        F.date_format("dato", "yyyyMMdd").cast("int").alias("dato_surrogate_id"),
+        F.col("dato"),
+        F.year("dato").alias("aar"),
+        F.quarter("dato").alias("kvartal"),
+        F.month("dato").alias("maaned"),
+        F.date_format("dato", "MMMM").alias("maaned_navn"),
+        F.weekofyear("dato").alias("uke"),
+        F.dayofmonth("dato").alias("dag"),
+        F.dayofweek("dato").alias("ukedag_nr"),
+        F.date_format("dato", "EEEE").alias("ukedag_navn"),
+        F.when(F.dayofweek("dato").isin([1, 7]), True)
+         .otherwise(False).alias("er_helg"),
+        F.concat(F.lit("Q"), F.quarter("dato"), F.lit("-"), F.year("dato"))
+         .alias("aar_kvartal"),
+        F.date_format("dato", "yyyy-MM").alias("aar_maaned")
+    )
 
 # METADATA ********************
 
@@ -478,6 +568,100 @@ def log_validation(spark, validation_result, target_table: str = None,
 # META   "language_group": "synapse_pyspark"
 # META }
 
+# CELL ********************
+
+import msal  # OAuth 2.0 – brukes av ingest_sharepoint_* for token-henting
+from datetime import datetime
+
+# =============================================================================
+# Watermark-funksjoner – leser/skriver til lh_av01_admin Delta-tabell
+# Én rad per source_id + endpoint_path via DeltaTable.merge() (ekte UPSERT)
+# Ingen append-vekst, ingen cleanup nødvendig
+# =============================================================================
+
+def _watermark_table() -> str:
+    """Returnerer fullt kvalifisert tabellnavn for watermark_store."""
+    return f"`{ADMIN_LH_WORKSPACE}`.`{ADMIN_LH_NAME}`.metadata.watermark_store"
+
+
+def get_watermark(spark, source_id: int, endpoint_path: str) -> dict | None:
+    """
+    Henter watermark for en kilde og endepunkt fra Delta-tabell i lh_av01_admin.
+
+    Én rad per source_id + endpoint_path – returnerer direkte uten max(updated_at).
+
+    Logikk i ingest_brreg:
+        watermark_id  er satt → bruk oppdateringsid (inkrementell kjøring N+1)
+        watermark_date er satt → bruk dato (første inkrementell etter full load)
+        begge er None         → ingen data hentet ennå → kjør full load (auto)
+    """
+    table = _watermark_table()
+    df = spark.sql(f"""
+        SELECT * FROM {table}
+        WHERE source_id = {source_id}
+          AND endpoint_path = '{endpoint_path}'
+    """)
+    rows = [r.asDict() for r in df.collect()]
+    if not rows:
+        return None
+    return rows[0]
+
+
+def update_watermark(spark, source_id: int, endpoint_path: str,
+                     watermark_date: str = None, watermark_id: int = None):
+    """
+    Oppdaterer watermark via DeltaTable.merge() – ekte UPSERT.
+
+    Alltid én rad per source_id + endpoint_path.
+    Ingen append-vekst, ingen cleanup nødvendig.
+
+    Send enten watermark_date eller watermark_id – ikke begge:
+        watermark_date : ISO-8601 timestamp etter full load / ETag for Excel
+        watermark_id   : oppdateringsid (int) etter inkrementell BRREG-kjøring
+    """
+    from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+
+    schema = StructType([
+        StructField("source_id",      IntegerType(), nullable=False),
+        StructField("endpoint_path",  StringType(),  nullable=False),
+        StructField("watermark_date", StringType(),  nullable=True),
+        StructField("watermark_id",   IntegerType(), nullable=True),
+        StructField("updated_at",     TimestampType(), nullable=True),
+    ])
+
+    df = spark.createDataFrame([(
+        source_id,
+        endpoint_path,
+        watermark_date,
+        watermark_id,
+        datetime.now(),
+    )], schema)
+
+    table = _watermark_table()
+
+    table = _watermark_table()  
+    # table = "`av01-dev-datastores`.`lh_av01_admin`.metadata.watermark_store"
+
+    DeltaTable.forName(spark, table) \
+        .alias("target") \
+        .merge(
+            df.alias("source"),
+            "target.source_id = source.source_id "
+            "AND target.endpoint_path = source.endpoint_path"
+        ) \
+        .whenMatchedUpdateAll() \
+        .whenNotMatchedInsertAll() \
+        .execute()
+
+    print(f"  -> Watermark oppdatert: date={watermark_date}, id={watermark_id}")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
 # MARKDOWN ********************
 
 # **Loading Functions**
@@ -486,62 +670,428 @@ def log_validation(spark, validation_result, target_table: str = None,
 
 # CELL ********************
 
-def load_json_to_delta(spark, source_path: str, target_path: str,
-                       column_mapping_id: str, merge_condition: str,
-                       merge_type: str = "update_all",
-                       merge_columns: dict = None, **ctx) -> int:
+# Etter:
+def validate_and_quarantine(spark, source_df, key_columns, load_params,
+                            source_path, column_mapping_id, target_table):
+
+
+    quarantine_rows = []
+    valid_df = source_df
+
+    # ── 1. Schema-sjekk ───────────────────────────────────────────────────────
+    required_fields_str = load_params.get("required_fields", "")
+    if required_fields_str:
+        source_cols    = [c.lower() for c in source_df.columns]
+        required_lower = [f.strip().lower() for f in required_fields_str.split(",")]
+        missing_fields = [f for f in required_lower if f not in source_cols]
+        if missing_fields:
+            print(f"  -> KRITISK: Påkrevde felt mangler: {missing_fields} → karantene")
+            # Logg alle rader som schema-feil og stopp loading for denne kilden
+            schema_error_df = source_df \
+                .withColumn("validation_type", F.lit("SCHEMA_ERROR")) \
+                .withColumn("error_code",      F.lit("E005")) \
+                .withColumn("error_detail",    F.lit(f"Påkrevde felt mangler: {missing_fields}")) \
+                .withColumn("source_path",     F.lit(source_path)) \
+                .withColumn("column_mapping_id", F.lit(column_mapping_id)) \
+                .withColumn("target_table",    F.lit(target_table)) \
+                .withColumn("row_data",        F.to_json(F.struct(*source_df.columns))) \
+                .withColumn("_loading_ts",     F.current_timestamp()) \
+                .select("source_path", "column_mapping_id", "target_table",
+                        "validation_type", "error_code", "error_detail",
+                        "row_data", "_loading_ts")
+            
+            schema_error_df.write.format("delta").mode("append") \
+                .saveAsTable("`av01-dev-datastores`.`lh_av01_admin`.quarantine.loading_errors")
+
+            
+            
+            # Returner tom DataFrame → ingen rader til MERGE
+            return source_df.filter(F.lit(False))
+        
+        print(f"  -> Schema OK: alle {len(required_lower)} påkrevde felt funnet")
+
+
+
+    # ── 1b. Påkrevde felt ikke NULL ───────────────────────────────────────────
+    not_null_fields = load_params.get("not_null_fields", "")
+    if not_null_fields:
+        for field in [f.strip() for f in not_null_fields.split(",")]:
+            if field in valid_df.columns:
+                null_df  = valid_df.filter(F.col(field).isNull())
+                valid_df = valid_df.filter(F.col(field).isNotNull())
+                n = null_df.count()
+                if n > 0:
+                    print(f"  -> ADVARSEL: {n} rader med NULL i '{field}' → karantene")
+                    quarantine_rows.append(
+                        null_df
+                        .withColumn("validation_type", F.lit("NULL_VALUE"))
+                        .withColumn("error_code",      F.lit("E004"))
+                        .withColumn("error_detail",    F.lit(f"NULL-verdi i påkrevd felt: {field}"))
+                    )
+
+
+    # ── 2. NULL-nøkkel ────────────────────────────────────────────────────────
+    if key_columns:
+        null_condition = F.lit(False)
+        for key in key_columns:
+            null_condition = null_condition | F.col(key).isNull()
+
+        null_df  = valid_df.filter(null_condition)
+        valid_df = valid_df.filter(~null_condition)
+
+        null_count = null_df.count()
+        if null_count > 0:
+            print(f"  -> ADVARSEL: {null_count} rader med NULL-nøkkel → karantene")
+            quarantine_rows.append(
+                null_df
+                .withColumn("validation_type", F.lit("NULL_KEY"))
+                .withColumn("error_code",      F.lit("E001"))
+                .withColumn("error_detail",    F.lit(f"NULL i nøkkelkolonne(r): {key_columns}"))
+            )
+
+    # ── 3. Duplikate nøkler ───────────────────────────────────────────────────
+    if key_columns:
+        from pyspark.sql.window import Window
+        w = Window.partitionBy(key_columns).orderBy(F.lit(1))
+        valid_with_rank = valid_df.withColumn("_rank", F.row_number().over(w))
+
+        dup_df   = valid_with_rank.filter(F.col("_rank") > 1).drop("_rank")
+        valid_df = valid_with_rank.filter(F.col("_rank") == 1).drop("_rank")
+
+        dup_count = dup_df.count()
+        if dup_count > 0:
+            print(f"  -> ADVARSEL: {dup_count} duplikate nøkler → karantene")
+            quarantine_rows.append(
+                dup_df
+                .withColumn("validation_type", F.lit("DUPLICATE_KEY"))
+                .withColumn("error_code",      F.lit("E002"))
+                .withColumn("error_detail",    F.lit(f"Duplikat nøkkel: {key_columns}"))
+            )
+
+    # ── 4. Orgnr-validering ───────────────────────────────────────────────────────
+    orgnr_column = load_params.get("orgnr_column")
+    if orgnr_column and orgnr_column in valid_df.columns:
+
+        # Normaliser først – fjern mellomrom
+        valid_df = valid_df.withColumn(
+            orgnr_column,
+            F.regexp_replace(F.col(orgnr_column), r"\s+", "")
+        )
+
+        # Valider – må være eksakt 9 numeriske siffer
+        invalid_condition = (
+            F.col(orgnr_column).isNotNull() & (
+                (F.length(F.col(orgnr_column)) != 9) |
+                (~F.col(orgnr_column).rlike("^[0-9]{9}$"))
+            )
+        )
+
+        invalid_orgnr = valid_df.filter(invalid_condition)
+        valid_df      = valid_df.filter(~invalid_condition | F.col(orgnr_column).isNull())
+
+        orgnr_count = invalid_orgnr.count()
+        if orgnr_count > 0:
+            print(f"  -> ADVARSEL: {orgnr_count} rader med ugyldig orgnr → karantene")
+            quarantine_rows.append(
+                invalid_orgnr
+                .withColumn("validation_type", F.lit("INVALID_ORGNR"))
+                .withColumn("error_code",      F.lit("E003"))
+                .withColumn("error_detail",    F.concat(
+                    F.lit(f"'{orgnr_column}' = '"),
+                    F.col(orgnr_column),
+                    F.lit("' er ikke 9 numeriske siffer")
+                ))
+            )
+
+    # ── Skriv til quarantine ──────────────────────────────────────────────────
+    if quarantine_rows:
+        from functools import reduce
+        quarantine_df = reduce(lambda a, b: a.union(b), quarantine_rows)
+        quarantine_df = quarantine_df \
+            .withColumn("source_path",       F.lit(source_path)) \
+            .withColumn("column_mapping_id", F.lit(column_mapping_id)) \
+            .withColumn("target_table",      F.lit(target_table)) \
+            .withColumn("row_data",          F.to_json(F.struct(*[
+                c for c in source_df.columns
+            ]))) \
+            .withColumn("_loading_ts",       F.current_timestamp()) \
+            .select("source_path", "column_mapping_id", "target_table",
+                    "validation_type", "error_code", "error_detail",
+                    "row_data", "_loading_ts")
+
+        # Etter:
+        quarantine_df.write.format("delta").mode("append") \
+            .saveAsTable("`av01-dev-datastores`.`lh_av01_admin`.quarantine.loading_errors")
+
+        total_q = quarantine_df.count()
+        print(f"  -> Karantene totalt: {total_q} rader → quarantine/loading_errors")
+
+    print(f"  -> Gyldige rader til MERGE: {valid_df.count()}")
+    return valid_df
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+import re
+
+def load_json_to_delta(spark, source_path, target_path,
+                       column_mapping_id, merge_condition,
+                       merge_type="update_all", merge_columns=None,
+                       key_columns=None, load_params=None,
+                       **ctx):
     """
     Load JSON files from Raw zone to Delta table with column mapping and MERGE.
-    
-    Corresponds to: metadata.loading_store.function_name = 'load_json_to_delta'
-    
-    Args:
-        spark: SparkSession
-        source_path: ABFS path to raw JSON files folder
-        target_path: ABFS path to target Delta table
-        column_mapping_id: Key to lookup in metadata.column_mappings table
-        merge_condition: SQL condition for MERGE (e.g., 'target.id = source.id')
-        merge_type: 'update_all' or 'specific_columns'
-        merge_columns: Dict with 'update' and 'insert' column lists if merge_type='specific_columns'
-    
-    Returns: row count processed
+
+    Støtter to JSON-formater:
+      1. {"items": [...]} – fra write_to_landing_zone (YouTube, SharePoint, inkrementell)
+      2. [{...}, {...}]   – JSON array fra DuckDB full load (BRREG)
+
+    Laster ALLE ulastede filer i source_path (eldst først).
+    Arkiverer hver fil etter vellykket MERGE → ingen hull i data ved feil.
     """
-    # Get column mapping from metadata
+    # ── Kolonne-mapping fra metadata ──────────────────────────────────────────
     mapping = load_column_mappings(spark, column_mapping_id)
     if not mapping:
-        raise ValueError(f"Column mapping '{column_mapping_id}' not found in metadata.column_mappings")
+        raise ValueError(f"Column mapping '{column_mapping_id}' not found")
 
-    # Read most recent JSON file
+    # ── Hent alle filer i mappen (ekskluder archive/) ─────────────────────────
+    all_files = [f for f in notebookutils.fs.ls(source_path)
+                 if not f.isDir
+                 and f.name.endswith((".json", ".jsonl"))]
+
+    if not all_files:
+        print(f"  -> Ingen nye filer i {source_path} – hopper over")
+        return 0
+
+    # Sorter eldst først – sikrer riktig rekkefølge ved flere filer
+    all_files = sorted(all_files, key=lambda f: f.modifyTime)
+    print(f"  -> Fant {len(all_files)} fil(er) å laste")
+
+    total_rows = 0
+
+    for file in all_files:
+        print(f"  -> Laster: {file.name}")
+
+        # ── Les JSON-fil ──────────────────────────────────────────────────────
+        raw_df = spark.read.option("multiLine", "true").json(file.path)
+
+        # ── Håndter format-varianter ──────────────────────────────────────────
+        if "items" in raw_df.columns:
+            raw_df = raw_df.select(F.explode(F.col("items")).alias("item"))
+            def get_col(source):
+                col = F.col("item")
+                for part in re.split(r'\.(?=[a-zA-Z])', source):
+                    col = col.getField(part)
+                return col
+        else:
+            def get_col(source):
+                parts = re.split(r'\.(?=[a-zA-Z])', source)
+                col   = F.col(f"`{parts[0]}`")
+                for part in parts[1:]:
+                    col = col.getField(part)
+                return col
+
+        # ── Bygg SELECT fra kolonne-mapping ───────────────────────────────────
+        select_exprs = []
+        for col_map in mapping:
+            source   = col_map["source"]
+            target   = col_map["target"]
+            col_type = col_map["type"]
+
+            if source == "_loading_ts":
+                select_exprs.append(F.current_timestamp().alias(target))
+            elif col_type == "timestamp":
+                select_exprs.append(F.to_timestamp(get_col(source)).alias(target))
+            elif col_type == "date":
+                select_exprs.append(F.to_date(get_col(source)).alias(target))
+            elif col_type == "int":
+                select_exprs.append(get_col(source).cast("int").alias(target))
+            elif col_type == "bigint":
+                select_exprs.append(get_col(source).cast("bigint").alias(target))
+            elif col_type == "double":
+                select_exprs.append(
+                    F.when(get_col(source) == "", None)
+                     .otherwise(get_col(source).cast("double"))
+                     .alias(target)
+                )
+            elif col_type == "boolean":
+                select_exprs.append(get_col(source).cast("boolean").alias(target))
+            else:
+                select_exprs.append(
+                    F.when(get_col(source) == "", None)
+                     .otherwise(get_col(source))
+                     .alias(target)
+                )
+
+        source_df = raw_df.select(*select_exprs)
+        print(f"  -> Kolonner mappet: {len(select_exprs)} kolonner")
+
+        # ── Validering og karantene ───────────────────────────────────────────
+        if key_columns or (load_params and load_params.get("required_fields")):
+            source_df = validate_and_quarantine(
+                spark             = spark,
+                source_df         = source_df,
+                key_columns       = key_columns or [],
+                load_params       = load_params or {},
+                source_path       = source_path,
+                column_mapping_id = column_mapping_id,
+                target_table      = target_path
+            )
+
+        row_count = source_df.count()
+        
+
+        # ── MERGE til Delta-tabell ────────────────────────────────────────────
+        print(f"  -> Starter MERGE til {target_path.split('Tables/')[-1]}...")
+        delta_table  = DeltaTable.forPath(spark, target_path)
+        merge_builder = delta_table.alias("target").merge(
+            source_df.alias("source"), merge_condition
+        )
+
+        if merge_type == "update_all":
+            merge_builder.whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+        elif merge_type == "specific_columns" and merge_columns:
+            update_cols = {c: F.col(f"source.{c}") for c in merge_columns.get("update", [])}
+            insert_cols = {c: F.col(f"source.{c}") for c in merge_columns.get("insert", [])}
+            merge_builder.whenMatchedUpdate(set=update_cols) \
+                         .whenNotMatchedInsert(values=insert_cols) \
+                         .execute()
+
+        print(f"  -> MERGE fullført")
+        # ── Arkiver fil etter vellykket MERGE ─────────────────────────────────
+        try:
+            folder_path  = file.path.replace(file.name, "")
+            archive_path = f"{folder_path}archive/{file.name}"
+            notebookutils.fs.mkdirs(f"{folder_path}archive/")
+            notebookutils.fs.mv(file.path, archive_path, overwrite=True)
+            print(f"  -> Arkivert: {file.name} → archive/")
+        except Exception as e:
+            print(f"  -> ADVARSEL: Arkivering feilet: {e}")
+
+        total_rows += row_count
+
+    return total_rows
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+import re
+
+def load_json_to_delta_old(spark, source_path, target_path,
+                       column_mapping_id, merge_condition,
+                       merge_type="update_all", merge_columns=None,
+                       key_columns=None, load_params=None,
+                       **ctx):
+
+    """
+    Load JSON files from Raw zone to Delta table with column mapping and MERGE.
+
+    Støtter to JSON-formater:
+      1. {"items": [...]} – fra write_to_landing_zone (YouTube, SharePoint, inkrementell)
+      2. [{...}, {...}]   – JSON array fra DuckDB full load (BRREG)
+
+    Støtter kolonnenavn med spesialtegn (/, mellomrom, æøå) via getField().
+    Støtter nestede paths (snippet.title) via regex-split på punktum.
+
+    Støttede data_type i metadata.column_mappings:
+      string, int, bigint, double, boolean, date, timestamp, current_timestamp
+    """
+    # ── Kolonne-mapping fra metadata ──────────────────────────────────────────
+    mapping = load_column_mappings(spark, column_mapping_id)
+    if not mapping:
+        raise ValueError(f"Column mapping '{column_mapping_id}' not found")
+
+    # ── Les nyeste JSON-fil ───────────────────────────────────────────────────
     most_recent = get_most_recent_file(source_path, "")
     raw_df = spark.read.option("multiLine", "true").json(most_recent.path)
 
-    # Check if needs explosion (has "items" array)
+    # ── Håndter format-varianter og kolonnenavn med spesialtegn ──────────────
     if "items" in raw_df.columns:
         raw_df = raw_df.select(F.explode(F.col("items")).alias("item"))
-        prefix = "item."
-    else:
-        prefix = ""
+        def get_col(source):
+            # Split kun på punktum etterfulgt av bokstav (path-separator)
+            # "snippet.title"         → getField("snippet").getField("title")
+            # "Sum driftsinnt."       → getField("Sum driftsinnt.")   (avsluttende . beholdes)
+            # "Aksje/Selskapskapital" → getField("Aksje/Selskapskapital")
+            col = F.col("item")
+            for part in re.split(r'\.(?=[a-zA-Z])', source):
+                col = col.getField(part)
+            return col
+ 
 
-    # Apply column mapping
+    else:
+        # JSON array (BRREG) eller enkelt objekt — håndter nestede paths via getField
+        def get_col(source):
+            parts = re.split(r'\.(?=[a-zA-Z])', source)
+            col   = F.col(f"`{parts[0]}`")
+            for part in parts[1:]:
+                col = col.getField(part)
+            return col
+
+    # ── Bygg SELECT fra kolonne-mapping ───────────────────────────────────────
     select_exprs = []
     for col_map in mapping:
-        source = col_map["source"]
-        target = col_map["target"]
+        source   = col_map["source"]
+        target   = col_map["target"]
         col_type = col_map["type"]
 
         if source == "_loading_ts":
             select_exprs.append(F.current_timestamp().alias(target))
         elif col_type == "timestamp":
-            select_exprs.append(F.to_timestamp(F.col(f"{prefix}{source}")).alias(target))
+            select_exprs.append(F.to_timestamp(get_col(source)).alias(target))
+        elif col_type == "date":
+            select_exprs.append(F.to_date(get_col(source)).alias(target))
         elif col_type == "int":
-            select_exprs.append(F.col(f"{prefix}{source}").cast("int").alias(target))
+            select_exprs.append(get_col(source).cast("int").alias(target))
+        elif col_type == "bigint":
+            select_exprs.append(get_col(source).cast("bigint").alias(target))
+        elif col_type == "double":
+            select_exprs.append(
+                F.when(get_col(source) == "", None)
+                 .otherwise(get_col(source).cast("double"))
+                 .alias(target)
+            )
+        elif col_type == "boolean":
+            select_exprs.append(get_col(source).cast("boolean").alias(target))
         else:
-            select_exprs.append(F.col(f"{prefix}{source}").alias(target))
+            # string – tom streng → NULL
+            select_exprs.append(
+                F.when(get_col(source) == "", None)
+                 .otherwise(get_col(source))
+                 .alias(target)
+            )
 
+ 
     source_df = raw_df.select(*select_exprs)
-    row_count = source_df.count()
 
-    # MERGE to target
+    # ── Validering og karantene ───────────────────────────────────────────────
+    if key_columns or (load_params and load_params.get("required_fields")):
+        source_df = validate_and_quarantine(
+            spark             = spark,
+            source_df         = source_df,
+            key_columns       = key_columns or [],
+            load_params       = load_params or {},
+            source_path       = source_path,
+            column_mapping_id = column_mapping_id,
+            target_table      = target_path
+        )
+
+    row_count = source_df.count()
+   
+
+    # ── MERGE til Delta-tabell ────────────────────────────────────────────────
     delta_table = DeltaTable.forPath(spark, target_path)
     merge_builder = delta_table.alias("target").merge(
         source_df.alias("source"), merge_condition
@@ -552,9 +1102,27 @@ def load_json_to_delta(spark, source_path: str, target_path: str,
     elif merge_type == "specific_columns" and merge_columns:
         update_cols = {c: F.col(f"source.{c}") for c in merge_columns.get("update", [])}
         insert_cols = {c: F.col(f"source.{c}") for c in merge_columns.get("insert", [])}
-        merge_builder.whenMatchedUpdate(set=update_cols).whenNotMatchedInsert(values=insert_cols).execute()
+        merge_builder.whenMatchedUpdate(set=update_cols) \
+                     .whenNotMatchedInsert(values=insert_cols) \
+                     .execute()
+
+    # ── Arkiver JSON-fil etter vellykket MERGE ────────────────────────────────
+    try:
+        file_name    = most_recent.name
+        folder_path  = most_recent.path.replace(file_name, "")
+        archive_path = f"{folder_path}archive/{file_name}"
+        if most_recent.isDir:
+            print(f"  -> ADVARSEL: Ingen fil å arkivere – hopper over")
+        else:
+            notebookutils.fs.mkdirs(f"{folder_path}archive/")
+            notebookutils.fs.mv(most_recent.path, archive_path, overwrite=True)
+            print(f"  -> Arkivert: {file_name} → archive/")
+    except Exception as e:
+        print(f"  -> ADVARSEL: Arkivering feilet: {e}")
+
 
     return row_count
+
 
 # METADATA ********************
 
@@ -625,7 +1193,15 @@ def rename_columns(df, column_mapping: dict, **ctx):
         result_df = result_df.withColumnRenamed(old_name, new_name)
     return result_df
 
-
+def add_computed_columns(df, columns: dict, **ctx):
+    """
+    Add columns with computed values using Spark SQL expressions.
+    Expected params: {"columns": {"col_name": "spark_sql_expression"}}
+    """
+    result_df = df
+    for col_name, expr_str in columns.items():
+        result_df = result_df.withColumn(col_name, F.expr(expr_str))
+    return result_df
 
 def add_literal_columns(df, columns: dict, **ctx):
     """
@@ -639,8 +1215,88 @@ def add_literal_columns(df, columns: dict, **ctx):
         result_df = result_df.withColumn(col_name, F.lit(value))
     return result_df
 
-
 def generate_surrogate_key(df, key_column_name: str, order_by_col: str,
+                           natural_key=None, max_from_table: str = None, **ctx):
+    """
+    Generate surrogate key for new records only, preserving existing keys.
+
+    natural_key kan være str (enkel nøkkel) eller list (sammensatt nøkkel).
+    """
+    spark          = ctx.get("spark")
+    dest_base_path = ctx.get("dest_base_path", "")
+    max_id         = 0
+    existing_lookup = None
+
+    # ── Bygg concat-kolonne for sammensatt nøkkel ─────────────────────────────
+    composite_key = isinstance(natural_key, list)
+    if composite_key:
+        concat_expr = F.concat_ws("_", *[F.col(c).cast("string") for c in natural_key])
+        df = df.withColumn("_natural_key", concat_expr)
+        join_key = "_natural_key"
+    else:
+        join_key = natural_key
+
+    if max_from_table and spark:
+        try:
+            full_path = dest_base_path + max_from_table
+            target_df = DeltaTable.forPath(spark, full_path).toDF()
+            max_id = target_df.agg(
+                F.coalesce(F.max(key_column_name), F.lit(0))
+            ).collect()[0][0]
+
+            if join_key:
+                # Bygg samme concat på target hvis sammensatt nøkkel
+                if composite_key:
+                    target_df = target_df.withColumn(
+                        "_natural_key",
+                        F.concat_ws("_", *[F.col(c).cast("string") for c in natural_key])
+                    )
+                existing_lookup = target_df.select(
+                    F.col(join_key).alias("_lookup_natural_key"),
+                    F.col(key_column_name).alias("_existing_surrogate_id")
+                )
+        except Exception as e:
+            print(f"  -> Note: Could not read max ID from {max_from_table}: {e}")
+            max_id = 0
+
+    if existing_lookup is not None and join_key:
+        df_with_existing = df.join(
+            existing_lookup,
+            df[join_key] == existing_lookup["_lookup_natural_key"],
+            "left"
+        )
+
+        existing_records = df_with_existing.filter(F.col("_existing_surrogate_id").isNotNull())
+        new_records      = df_with_existing.filter(F.col("_existing_surrogate_id").isNull())
+
+        existing_with_key = existing_records.withColumn(
+            key_column_name, F.col("_existing_surrogate_id")
+        ).drop("_lookup_natural_key", "_existing_surrogate_id")
+
+        # Dropp midlertidig concat-kolonne
+        if composite_key:
+            existing_with_key = existing_with_key.drop("_natural_key")
+
+        if new_records.count() > 0:
+            window_spec = Window.orderBy(order_by_col)
+            new_with_key = new_records.withColumn(
+                key_column_name, F.row_number().over(window_spec) + max_id
+            ).drop("_lookup_natural_key", "_existing_surrogate_id")
+
+            if composite_key:
+                new_with_key = new_with_key.drop("_natural_key")
+
+            return existing_with_key.unionByName(new_with_key)
+        else:
+            return existing_with_key
+    else:
+        if composite_key:
+            df = df.drop("_natural_key")
+        window_spec = Window.orderBy(order_by_col)
+        return df.withColumn(key_column_name, F.row_number().over(window_spec) + max_id)
+
+        
+def generate_surrogate_key_old(df, key_column_name: str, order_by_col: str,
                            natural_key: str = None, max_from_table: str = None, **ctx):
     """
     Generate surrogate key for new records only, preserving existing keys.
@@ -743,7 +1399,7 @@ def lookup_join(df, lookup_table: str, source_key: str,
 
 # META {
 # META   "language": "python",
-# META   "language_group": "jupyter_python"
+# META   "language_group": "synapse_pyspark"
 # META }
 
 # CELL ********************
@@ -758,6 +1414,37 @@ def get_transform_function(function_name: str):
 
 
 def execute_transform_pipeline(spark, df, pipeline: list, params: dict,
+                               transform_lookup: dict, dest_base_path: str = ""):
+    result_df = df
+    ctx        = {"spark": spark, "dest_base_path": dest_base_path}
+    call_count = {}  # ← ny: teller kall per transform_id
+
+    for transform_id in pipeline:
+        transform_meta = transform_lookup.get(transform_id)
+        if not transform_meta:
+            raise ValueError(f"Transform ID {transform_id} not found in metadata")
+
+        function_name  = transform_meta["function_name"]
+        transform_func = get_transform_function(function_name)
+        if not transform_func:
+            raise ValueError(f"Function '{function_name}' not implemented")
+
+        # ── Støtt liste av params per transform_id ────────────────────────
+        key   = str(transform_id)
+        count = call_count.get(key, 0)       # ← ny
+        call_count[key] = count + 1          # ← ny
+
+        p_raw = params.get(key, {})
+        if isinstance(p_raw, list):          # ← ny
+            transform_params = p_raw[count] if count < len(p_raw) else {}
+        else:
+            transform_params = p_raw         # ← erstatter gammel linje
+
+        result_df = transform_func(result_df, **transform_params, **ctx)
+
+    return result_df
+
+def execute_transform_pipeline_old(spark, df, pipeline: list, params: dict,
                                transform_lookup: dict, dest_base_path: str = ""):
     """
     Execute ordered transform pipeline using metadata lookup.
