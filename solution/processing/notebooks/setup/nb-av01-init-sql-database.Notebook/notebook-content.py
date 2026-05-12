@@ -594,4 +594,3 @@ for table in tables_to_check:
 # META   "language": "python",
 # META   "language_group": "synapse_pyspark"
 # META }
-
