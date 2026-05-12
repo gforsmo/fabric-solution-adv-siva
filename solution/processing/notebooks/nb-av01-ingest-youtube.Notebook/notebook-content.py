@@ -23,20 +23,12 @@
 
 # ## Imports & Setup
 
-# CELL ********************
+# PARAMETERS CELL ********************
 
-%run nb-av01-generic-functions
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-%run nb-av01-api-tools-youtube
+# Parameters - passed via REST API execution
+spn_tenant_id = ""
+spn_client_id = ""
+spn_client_secret = ""
 
 # METADATA ********************
 
@@ -51,10 +43,18 @@
 
 # CELL ********************
 
-# Parameters - passed via REST API execution
-spn_tenant_id = ""
-spn_client_id = ""
-spn_client_secret = ""
+TEST_MODE = False
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+%run nb-av01-generic-functions
 
 # METADATA ********************
 
@@ -82,17 +82,76 @@ RAW_BASE_PATH = construct_abfs_path(variables.LH_WORKSPACE_NAME, variables.BRONZ
 # META   "language_group": "synapse_pyspark"
 # META }
 
-# MARKDOWN ********************
-
-# ## Load Metadata
-
 # CELL ********************
 
+TEST_MODE = False
+
+set_admin_lakehouse(
+    workspace = variables.LH_WORKSPACE_NAME,
+    lakehouse = "lh_av01_admin"
+)
 # Configure connection to metadata SQL database
 set_metadata_db_url(
     server=variables.METADATA_SERVER,
     database=variables.METADATA_DB
 )
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+%run nb-av01-api-tools-youtube
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+%run nb-av01-api-tools-brreg
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+%run nb-av01-api-tools-sharepoint
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+print(METADATA_DB_URL)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
+
+# ## Load Metadata
+
+# CELL ********************
 
 # Load source store for API connection details (source_id -> base_url, key_vault_url, handler_function, etc.)
 source_lookup = load_source_store(spark)
@@ -112,8 +171,7 @@ ingestion_instructions = get_active_instructions(spark, "ingestion")
 
 # CELL ********************
 
-df = spark.read.option("url", METADATA_DB_URL).mssql("metadata.source_store")
-df.printSchema()  
+display(ingestion_instructions)
 
 # METADATA ********************
 
@@ -147,9 +205,19 @@ first_instr = ingestion_instructions[0] if ingestion_instructions else {}
 PIPELINE_NAME = first_instr.get("pipeline_name", "data_pipeline")
 NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-0-ingest-api")
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+
+
 # Shared context for cross-instruction dependencies
-# (e.g., /videos endpoint needs data from /playlistItems endpoint)
-ingestion_context = {}
+ingestion_context = {"raw_base_path": RAW_BASE_PATH}
 
 
 def ingest_executor(spark, instr):
@@ -158,14 +226,28 @@ def ingest_executor(spark, instr):
     if not source_meta:
         raise ValueError(f"Source ID {instr['source_id']} not found in source_store")
 
-    print(f"Ingesting: {source_meta['source_name']}{instr['endpoint_path']}")
+    print(f"Ingesting: {source_meta['source_name']}/{instr['endpoint_path']}")
 
-    api_key = get_api_key_from_keyvault(source_meta["key_vault_url"], source_meta["secret_name"])
+    # Hent API-nøkkel kun hvis kilden krever autentisering
+    # auth_method='none' (BRREG) → api_key=None, ingen Key Vault-kall
+    # auth_method='api_key' / 'oauth_spn' → hent fra Key Vault
+    key_vault_url = source_meta.get("key_vault_url")
+    secret_name   = source_meta.get("secret_name")
+
+    if source_meta.get("auth_method", "none") != "none" and key_vault_url and secret_name:
+        api_key = get_api_key_from_keyvault(key_vault_url, secret_name)
+    else:
+        api_key = None
+
     handler_func = resolve_ingestion_handler(source_meta)
     items = handler_func(source_meta, instr, api_key, ingestion_context)
 
-    item_count = write_to_landing_zone(items, RAW_BASE_PATH, instr["landing_path"])
-    print(f"  -> Saved {item_count} items to {instr['landing_path']}")
+    if items:
+        item_count = write_to_landing_zone(items, RAW_BASE_PATH, instr["landing_path"])
+        print(f"  -> Saved {item_count} items to {instr['landing_path']}")
+    else:
+        item_count = 0
+        print(f"  -> No items to save")
 
     return (item_count, source_meta["source_name"], instr["endpoint_path"])
 
@@ -179,6 +261,75 @@ execute_pipeline_stage(
     action_type=ACTION_INGESTION,
     log_lookup=log_lookup
 )
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+INGEST_STATUS    = "OK"
+INGEST_ROW_COUNT = 0
+
+print(f"=== INGEST FULLFØRT ===")
+print(f"  Status    : {INGEST_STATUS}")
+print(f"  Tidspunkt : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+notebookutils.notebook.exit(INGEST_STATUS)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# Tøm alle Bronze Delta-tabeller
+'''
+tables = [
+    "brreg.enheter",
+    "sharepoint.meldingslogg",
+    "sharepoint.regnskapbedrifter",
+    "youtube.channel",
+    "youtube.playlist_items",
+    "youtube.videos",
+    "quarantine.loading_errors",
+]
+
+for table in tables:
+    spark.sql(f"DELETE FROM `av01-dev-datastores`.`lh_av01_bronze`.{table} WHERE 1=1")
+    print(f"  Tømt: {table}")
+
+# Nullstill alle watermarks – tvinger full load ved neste kjøring
+spark.sql("""
+    UPDATE `av01-dev-datastores`.`lh_av01_admin`.metadata.watermark_store
+    SET watermark_date = NULL,
+        watermark_id   = NULL,
+        updated_at     = current_timestamp()
+""")
+
+print("Watermarks nullstilt – neste kjøring gjør full load")
+spark.sql("SELECT * FROM `av01-dev-datastores`.`lh_av01_admin`.metadata.watermark_store").show(truncate=False)
+
+print("Ferdig")
+
+
+'''
 
 
 # METADATA ********************
