@@ -62,7 +62,7 @@ def get_capacity_name(workspace_type: str, solution_version: str) -> str | None:
     capacity_map = {
         "processing":  f"fc{solution_version}devengineering",
         "datastores":  f"fc{solution_version}devengineering",
-        "consumption": f"fc{solution_version}devconsumption",
+        "consumption": f"fc{solution_version}devengineering",
     }
     return capacity_map.get(workspace_type)
 
