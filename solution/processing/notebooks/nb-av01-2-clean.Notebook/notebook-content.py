@@ -104,7 +104,7 @@ transform_instructions = get_active_instructions(spark, "transformations", layer
 # CELL ********************
 
 # Read pipeline/notebook identity from instruction metadata
-first_instr = transform_instructions[0] if transform_instructions else {}
+first_instr   = transform_instructions[0] if transform_instructions else {}
 PIPELINE_NAME = first_instr.get("pipeline_name", "data_pipeline")
 NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-2-clean")
 
@@ -112,51 +112,66 @@ NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-2-clean")
 def clean_executor(spark, instr):
     """Execute a single clean/transform instruction. Returns (row_count, source_name, detail)."""
     source_path = BRONZE_BASE_PATH + instr["source_table"]
-    dest_path = SILVER_BASE_PATH + instr["dest_table"]
+    dest_path   = SILVER_BASE_PATH + instr["dest_table"]
+    use_cdf     = bool(instr.get("use_cdf", False))
 
-    print(f"Transforming: {instr['source_table']} -> {instr['dest_table']}")
+    print(f"Transforming: {instr['source_table']} -> {instr['dest_table']}"
+          f" [{'CDF' if use_cdf else 'full'}]")
 
-    df = spark.read.format("delta").load(source_path)
-   
+    # ── Les data ──────────────────────────────────────────────────────────────
+    df, slettet_df = les_delta_med_cdf(spark, source_path, instr["source_table"], use_cdf)
 
-    # Parse transform pipeline (ordered list of transform_ids) and params
-    pipeline = json.loads(instr["transform_pipeline"])
-    params = json.loads(instr["transform_params"]) if instr.get("transform_params") else {}
+    # ── Transformer ───────────────────────────────────────────────────────────
+    pipeline  = json.loads(instr["transform_pipeline"])
+    params    = json.loads(instr["transform_params"]) if instr.get("transform_params") else {}
 
     result_df = execute_transform_pipeline(
-        spark=spark,
-        df=df,
-        pipeline=pipeline,
-        params=params,
-        transform_lookup=transform_lookup
+        spark            = spark,
+        df               = df,
+        pipeline         = pipeline,
+        params           = params,
+        transform_lookup = transform_lookup
     )
 
     merge_columns = json.loads(instr["merge_columns"]) if instr.get("merge_columns") else None
 
     if not instr.get("merge_type"):
-        raise ValueError(f"merge_type is required in transformation instruction for {instr['dest_table']}")
+        raise ValueError(
+            f"merge_type is required in transformation instruction for {instr['dest_table']}"
+        )
 
+    # ── Merge til Silver ──────────────────────────────────────────────────────
     row_count = merge_to_delta(
-        spark=spark,
-        source_df=result_df,
-        target_path=dest_path,
-        merge_condition=instr["merge_condition"],
-        merge_type=instr["merge_type"],
-        merge_columns=merge_columns
+        spark          = spark,
+        source_df      = result_df,
+        target_path    = dest_path,
+        merge_condition= instr["merge_condition"],
+        merge_type     = instr["merge_type"],
+        merge_columns  = merge_columns
     )
+
+    # ── Håndter slettinger ────────────────────────────────────────────────────
+    if slettet_df is not None:
+        from delta.tables import DeltaTable
+        DeltaTable.forPath(spark, dest_path) \
+            .alias("target") \
+            .merge(slettet_df.alias("source"), instr["merge_condition"]) \
+            .whenMatchedDelete() \
+            .execute()
+        print(f"  -> Slettinger utført i {instr['dest_table']}")
 
     print(f"  -> Merged to {instr['dest_table']}")
     return (row_count, instr["source_table"], instr["dest_table"])
 
 
 execute_pipeline_stage(
-    spark=spark,
-    instructions=transform_instructions,
-    stage_executor=clean_executor,
-    notebook_name=NOTEBOOK_NAME,
-    pipeline_name=PIPELINE_NAME,
-    action_type=ACTION_TRANSFORMATION,
-    log_lookup=log_lookup
+    spark         = spark,
+    instructions  = transform_instructions,
+    stage_executor= clean_executor,
+    notebook_name = NOTEBOOK_NAME,
+    pipeline_name = PIPELINE_NAME,
+    action_type   = ACTION_TRANSFORMATION,
+    log_lookup    = log_lookup
 )
 
 # METADATA ********************

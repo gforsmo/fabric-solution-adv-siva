@@ -54,6 +54,24 @@
       "note": "",
       "type": "String",
       "value": "env-av01-dataeng"
+    },
+    {
+      "name": "SM_WORKSPACE_NAME",
+      "note": "",
+      "type": "String",
+      "value": "av01-dev-consumption"
+    },
+    {
+      "name": "SM_NAME_IMPORTMODE",
+      "note": "",
+      "type": "String",
+      "value": "sm_av01_bedrift"
+    },
+    {
+      "name": "SM_NAME_DIRECTLAKE",
+      "note": "",
+      "type": "String",
+      "value": "sm_av01_bedrift_dl"
     }
   ]
 }

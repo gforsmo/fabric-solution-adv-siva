@@ -52,6 +52,8 @@ import requests
 # MSAL for SPN authentication to Key Vault
 import msal
 
+import sempy.fabric as fabric
+
 # METADATA ********************
 
 # META {
@@ -97,6 +99,9 @@ LAYER_GOLD = "gold"
 
 # Valid layers for validation
 VALID_LAYERS = {LAYER_RAW, LAYER_BRONZE, LAYER_SILVER, LAYER_GOLD}
+
+ACTION_SM_REFRESH = "sm_refresh"
+
 
 # METADATA ********************
 
@@ -226,28 +231,6 @@ def construct_abfs_path(workspace: str, lakehouse: str, area: str = "Tables") ->
     return f"abfss://{workspace}@onelake.dfs.fabric.microsoft.com/{lakehouse}.Lakehouse/{area}/"
 
 
-def get_most_recent_file_old(base_path: str, folder: str):
-    """
-    Find most recent file in folder by modifyTime.
-
-    Args:
-        base_path: Base ABFS path
-        folder: Subfolder to search
-
-    Returns:
-        File object with .path attribute
-
-    Raises:
-        FileNotFoundError: If no files found in folder
-    """
-    full_path = f"{base_path}{folder}"
-    files = notebookutils.fs.ls(full_path)
-    if not files:
-        raise FileNotFoundError(f"No files found in {full_path}")
-    return max(files, key=lambda f: f.modifyTime)
-
-
-
 def get_most_recent_file(base_path: str, prefix: str):
     files = [f for f in notebookutils.fs.ls(base_path)
              if not f.isDir and f.name.endswith((".json", ".jsonl"))]
@@ -370,6 +353,10 @@ def get_api_key_from_keyvault(key_vault_url: str, secret_name: str) -> str:
         return notebookutils.credentials.getSecret(key_vault_url, secret_name)
 
 
+def get_workspace_id(workspace_name: str) -> str:
+    """Resolves workspace name to GUID via Fabric."""
+    import sempy.fabric as fabric
+    return fabric.resolve_workspace_id(workspace_name)
 
 # METADATA ********************
 
@@ -422,144 +409,176 @@ def generate_date_dimension(df, start_year: int, end_year: int, **ctx):
 
 # CELL ********************
 
-def log_standard(spark, pipeline_name: str, notebook_name: str, status: str,
-                 rows_processed: int = 0, error_message: str = None,
-                 action_type: str = None, source_name: str = None,
-                 instruction_detail: str = None, started_at: datetime = None, **ctx) -> int:
-    """
-    Standard logging - records pipeline runs to SQL metadata database.
-    Writes to: [log].[pipeline_runs]
-
-    Args:
-        pipeline_name: Name of the pipeline (e.g., 'data_pipeline')
-        notebook_name: Name of the notebook executing this action
-        status: 'running', 'success', or 'failed'
-        rows_processed: Number of records processed
-        error_message: Error details if status='failed'
-        action_type: 'ingestion', 'loading', 'transformation', 'validation'
-        source_name: Source system name (e.g., 'youtube_api')
-        instruction_detail: Specific instruction info (e.g., '/playlistItems', 'youtube/channel')
-        started_at: When the action started (for accurate duration tracking)
-    """
+def log_standard(spark, pipeline_name, notebook_name, status,
+                 rows_processed=0, error_message=None,
+                 action_type=None, source_name=None,
+                 instruction_detail=None, started_at=None, **ctx):
     completed_at = datetime.now()
-    # Use provided started_at or default to completed_at (same time)
-    started_at = started_at or completed_at
+    started_at   = started_at or completed_at
 
-    # Schema must match table exactly (11 columns)
     schema = StructType([
-        StructField("run_id", LongType(), nullable=False),
-        StructField("pipeline_name", StringType(), nullable=False),
-        StructField("started_at", TimestampType(), nullable=True),
-        StructField("completed_at", TimestampType(), nullable=True),
-        StructField("status", StringType(), nullable=False),
-        StructField("records_processed", IntegerType(), nullable=True),
-        StructField("error_message", StringType(), nullable=True),
-        StructField("action_type", StringType(), nullable=True),
-        StructField("source_name", StringType(), nullable=True),
-        StructField("instruction_detail", StringType(), nullable=True),
-        StructField("notebook_name", StringType(), nullable=True)
+        StructField("run_id",            LongType(),      False),
+        StructField("pipeline_name",     StringType(),    False),
+        StructField("started_at",        TimestampType(), True),
+        StructField("completed_at",      TimestampType(), True),
+        StructField("status",            StringType(),    False),
+        StructField("records_processed", IntegerType(),   True),
+        StructField("error_message",     StringType(),    True),
+        StructField("action_type",       StringType(),    True),
+        StructField("source_name",       StringType(),    True),
+        StructField("instruction_detail",StringType(),    True),
+        StructField("notebook_name",     StringType(),    True)
     ])
 
-    # For 'running' status, completed_at should be None
     if status == "running":
         completed_at = None
 
-    log_data = [(0, pipeline_name, started_at, completed_at, status, rows_processed,
-                 error_message, action_type, source_name, instruction_detail, notebook_name)]
-    
-    log_df = spark.createDataFrame(log_data, schema)
-
+    log_df = spark.createDataFrame(
+        [(0, pipeline_name, started_at, completed_at, status,
+          rows_processed, error_message, action_type,
+          source_name, instruction_detail, notebook_name)],
+        schema
+    )
     log_df.write.mode("append").option("url", METADATA_DB_URL).mssql("log.pipeline_runs")
 
-    # Build descriptive log message
     detail = f"{action_type or 'action'}: {source_name or ''}{instruction_detail or ''}"
     print(f"  -> Logged: {detail} - {status} ({rows_processed} rows)")
     return rows_processed
 
 
-def log_validation(spark, validation_result, target_table: str = None,
-                   lakehouse_name: str = None, started_at: datetime = None, **ctx) -> int:
-    """
-    Validation-specific logging - logs one row per expectation result.
-
-    Corresponds to: metadata.log_store.function_name = 'log_validation' (log_id=2)
-    Writes to: [log].[validation_results] in metadata database
-
-    Table schema (11 columns):
-        result_id (IDENTITY), run_id, validation_instr_id, expectation_type,
-        column_name, passed, observed_value, executed_at,
-        lakehouse_name, schema_name, table_name
-
-    Args:
-        spark: SparkSession
-        validation_result: GX ValidationResult object from batch.validate()
-        target_table: Full table path (e.g., 'marketing/channels')
-        lakehouse_name: Name of the lakehouse being validated
-        started_at: When validation started
-
-    Returns: number of expectation results logged
-    """
+def log_validation(spark, validation_result, target_table=None,
+                   lakehouse_name=None, started_at=None, **ctx):
     executed_at = datetime.now()
-
-    # Get validation instructions from metadata attached to the result
     validation_instructions = validation_result.meta.get("validation_instructions", [])
 
-    # Parse target_table into schema_name and table_name
-    schema_name = None
-    table_name = None
-    if target_table:
-        parts = target_table.split("/")
-        if len(parts) == 2:
-            schema_name = parts[0]
-            table_name = parts[1]
-        else:
-            table_name = target_table
+    parts       = target_table.split("/") if target_table else []
+    schema_name = parts[0] if len(parts) == 2 else None
+    table_name  = parts[1] if len(parts) == 2 else target_table
 
-    # Schema must match [log].[validation_results] table exactly (11 columns)
     schema = StructType([
-        StructField("result_id", LongType(), nullable=False),  # IDENTITY - pass 0
-        StructField("run_id", LongType(), nullable=True),  # FK to pipeline_runs (nullable)
-        StructField("validation_instr_id", IntegerType(), nullable=True),
-        StructField("expectation_type", StringType(), nullable=True),
-        StructField("column_name", StringType(), nullable=True),
-        StructField("passed", BooleanType(), nullable=False),  # BIT maps to BooleanType
-        StructField("observed_value", StringType(), nullable=True),  # JSON as string
-        StructField("executed_at", TimestampType(), nullable=True),
-        StructField("lakehouse_name", StringType(), nullable=True),
-        StructField("schema_name", StringType(), nullable=True),
-        StructField("table_name", StringType(), nullable=True)
+        StructField("result_id",           LongType(),    False),
+        StructField("run_id",              LongType(),    True),
+        StructField("validation_instr_id", IntegerType(), True),
+        StructField("expectation_type",    StringType(),  True),
+        StructField("column_name",         StringType(),  True),
+        StructField("passed",              BooleanType(), False),
+        StructField("observed_value",      StringType(),  True),
+        StructField("executed_at",         TimestampType(),True),
+        StructField("lakehouse_name",      StringType(),  True),
+        StructField("schema_name",         StringType(),  True),
+        StructField("table_name",          StringType(),  True)
     ])
 
-    # Build results data matching each expectation result to its instruction
     results_data = []
     for i, result in enumerate(validation_result.results):
-        # Try to get validation_instr_id from the metadata we attached
-        validation_instr_id = None
-        if i < len(validation_instructions):
-            validation_instr_id = validation_instructions[i].get("validation_instr_id")
-
+        v_id = validation_instructions[i].get("validation_instr_id") if i < len(validation_instructions) else None
         results_data.append((
-            0,  # result_id - IDENTITY auto-generated
-            None,  # run_id - could link to pipeline_runs if needed
-            validation_instr_id,
+            0, None, v_id,
             result.expectation_config.type,
-            result.expectation_config.kwargs.get("column", None),
-            result.success,  # Boolean True/False for BIT column
-            json.dumps(result.result) if hasattr(result, 'result') and result.result else None,
-            executed_at,
-            lakehouse_name,
-            schema_name,
-            table_name
+            result.expectation_config.kwargs.get("column"),
+            result.success,
+            json.dumps(result.result) if hasattr(result, "result") and result.result else None,
+            executed_at, lakehouse_name, schema_name, table_name
         ))
 
-    log_df = spark.createDataFrame(results_data, schema)
+    spark.createDataFrame(results_data, schema) \
+        .write.mode("append").option("url", METADATA_DB_URL).mssql("log.validation_results")
 
-    # Use .mssql() for writing (same connector as reading)
-    log_df.write.mode("append").option("url", METADATA_DB_URL).mssql("log.validation_results")
-
-    print(f"  -> Logged {len(results_data)} validation results for {lakehouse_name or ''}.{target_table or 'table'}")
+    print(f"  -> Logged {len(results_data)} validation results for {target_table}")
     return len(results_data)
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+def les_delta_med_cdf(spark, source_path, source_table, use_cdf):
+    """
+    Leser Delta-data – CDF (kun endringer) eller full last.
+    Bruker samme .mssql()-connector som resten av pipeline.
+
+    Returnerer (df, slettet_df).
+    slettet_df er None ved full last eller ingen slettinger.
+
+    Håndterer tre scenarioer automatisk:
+      1. Ingen tidligere kjøring       → full last
+      2. CDF ikke aktivert for periode → full last (første gang etter aktivering)
+      3. Ingen nye endringer siden sist → tom DataFrame (hopper over)
+
+    Args:
+        spark:        SparkSession
+        source_path:  ABFS-sti til Delta-tabellen
+        source_table: Tabellnavn for logg-oppslag (f.eks. 'brreg/enheter')
+        use_cdf:      Om CDF skal brukes (fra instructions.use_cdf)
+    """
+    if not use_cdf:
+        return spark.read.format("delta").load(source_path), None
+
+    # Hent siste vellykkede transformasjon via Fabric SQL connector
+    siste_kjort = spark.read \
+        .option("url", METADATA_DB_URL) \
+        .mssql(f"""(
+            SELECT MAX(completed_at) AS siste_kjort
+            FROM log.pipeline_runs
+            WHERE source_name = '{source_table}'
+            AND   action_type = 'transformation'
+            AND   status      = 'success'
+        ) AS q""") \
+        .collect()[0][0]
+
+    if not siste_kjort:
+        print("  CDF: ingen tidligere kjøring – leser alle rader")
+        return spark.read.format("delta").load(source_path), None
+
+    print(f"  CDF fra: {siste_kjort}")
+
+    try:
+        df = spark.read.format("delta") \
+            .option("readChangeFeed",    "true") \
+            .option("startingTimestamp", str(siste_kjort)) \
+            .load(source_path) \
+            .filter(F.col("_change_type").isin("insert", "update_postimage"))
+
+        slettet_df = spark.read.format("delta") \
+            .option("readChangeFeed",    "true") \
+            .option("startingTimestamp", str(siste_kjort)) \
+            .load(source_path) \
+            .filter(F.col("_change_type") == "delete")
+
+        antall_slettet = slettet_df.count()
+        if antall_slettet == 0:
+            slettet_df = None
+        else:
+            print(f"  CDF: {antall_slettet} rader merket for sletting")
+
+        return df, slettet_df
+
+    except Exception as e:
+        # Ingen nye endringer – tabellen ikke oppdatert siden siste transformasjon
+        if "DELTA_TIMESTAMP_GREATER_THAN_COMMIT" in str(e):
+            print("  CDF: ingen nye endringer siden siste transformasjon – hopper over")
+            empty_df = spark.read.format("delta").load(source_path).limit(0)
+            return empty_df, None
+
+        # CDF ikke tilgjengelig for perioden – første gang etter aktivering
+        elif any(x in str(e) for x in [
+            "DELTA_MISSING_CHANGE_DATA",
+            "changeDataFeed",
+            "CDF",
+            "change data feed",
+            "not enabled"
+        ]):
+            print(f"  CDF ikke tilgjengelig fra {siste_kjort} "
+                  f"– kjører full last (første gang etter CDF-aktivering)")
+            return spark.read.format("delta").load(source_path), None
+
+        # Ukjent feil – kast videre
+        else:
+            raise
 
 # METADATA ********************
 
@@ -977,152 +996,6 @@ def load_json_to_delta(spark, source_path, target_path,
         total_rows += row_count
 
     return total_rows
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-import re
-
-def load_json_to_delta_old(spark, source_path, target_path,
-                       column_mapping_id, merge_condition,
-                       merge_type="update_all", merge_columns=None,
-                       key_columns=None, load_params=None,
-                       **ctx):
-
-    """
-    Load JSON files from Raw zone to Delta table with column mapping and MERGE.
-
-    Støtter to JSON-formater:
-      1. {"items": [...]} – fra write_to_landing_zone (YouTube, SharePoint, inkrementell)
-      2. [{...}, {...}]   – JSON array fra DuckDB full load (BRREG)
-
-    Støtter kolonnenavn med spesialtegn (/, mellomrom, æøå) via getField().
-    Støtter nestede paths (snippet.title) via regex-split på punktum.
-
-    Støttede data_type i metadata.column_mappings:
-      string, int, bigint, double, boolean, date, timestamp, current_timestamp
-    """
-    # ── Kolonne-mapping fra metadata ──────────────────────────────────────────
-    mapping = load_column_mappings(spark, column_mapping_id)
-    if not mapping:
-        raise ValueError(f"Column mapping '{column_mapping_id}' not found")
-
-    # ── Les nyeste JSON-fil ───────────────────────────────────────────────────
-    most_recent = get_most_recent_file(source_path, "")
-    raw_df = spark.read.option("multiLine", "true").json(most_recent.path)
-
-    # ── Håndter format-varianter og kolonnenavn med spesialtegn ──────────────
-    if "items" in raw_df.columns:
-        raw_df = raw_df.select(F.explode(F.col("items")).alias("item"))
-        def get_col(source):
-            # Split kun på punktum etterfulgt av bokstav (path-separator)
-            # "snippet.title"         → getField("snippet").getField("title")
-            # "Sum driftsinnt."       → getField("Sum driftsinnt.")   (avsluttende . beholdes)
-            # "Aksje/Selskapskapital" → getField("Aksje/Selskapskapital")
-            col = F.col("item")
-            for part in re.split(r'\.(?=[a-zA-Z])', source):
-                col = col.getField(part)
-            return col
- 
-
-    else:
-        # JSON array (BRREG) eller enkelt objekt — håndter nestede paths via getField
-        def get_col(source):
-            parts = re.split(r'\.(?=[a-zA-Z])', source)
-            col   = F.col(f"`{parts[0]}`")
-            for part in parts[1:]:
-                col = col.getField(part)
-            return col
-
-    # ── Bygg SELECT fra kolonne-mapping ───────────────────────────────────────
-    select_exprs = []
-    for col_map in mapping:
-        source   = col_map["source"]
-        target   = col_map["target"]
-        col_type = col_map["type"]
-
-        if source == "_loading_ts":
-            select_exprs.append(F.current_timestamp().alias(target))
-        elif col_type == "timestamp":
-            select_exprs.append(F.to_timestamp(get_col(source)).alias(target))
-        elif col_type == "date":
-            select_exprs.append(F.to_date(get_col(source)).alias(target))
-        elif col_type == "int":
-            select_exprs.append(get_col(source).cast("int").alias(target))
-        elif col_type == "bigint":
-            select_exprs.append(get_col(source).cast("bigint").alias(target))
-        elif col_type == "double":
-            select_exprs.append(
-                F.when(get_col(source) == "", None)
-                 .otherwise(get_col(source).cast("double"))
-                 .alias(target)
-            )
-        elif col_type == "boolean":
-            select_exprs.append(get_col(source).cast("boolean").alias(target))
-        else:
-            # string – tom streng → NULL
-            select_exprs.append(
-                F.when(get_col(source) == "", None)
-                 .otherwise(get_col(source))
-                 .alias(target)
-            )
-
- 
-    source_df = raw_df.select(*select_exprs)
-
-    # ── Validering og karantene ───────────────────────────────────────────────
-    if key_columns or (load_params and load_params.get("required_fields")):
-        source_df = validate_and_quarantine(
-            spark             = spark,
-            source_df         = source_df,
-            key_columns       = key_columns or [],
-            load_params       = load_params or {},
-            source_path       = source_path,
-            column_mapping_id = column_mapping_id,
-            target_table      = target_path
-        )
-
-    row_count = source_df.count()
-   
-
-    # ── MERGE til Delta-tabell ────────────────────────────────────────────────
-    delta_table = DeltaTable.forPath(spark, target_path)
-    merge_builder = delta_table.alias("target").merge(
-        source_df.alias("source"), merge_condition
-    )
-
-    if merge_type == "update_all":
-        merge_builder.whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
-    elif merge_type == "specific_columns" and merge_columns:
-        update_cols = {c: F.col(f"source.{c}") for c in merge_columns.get("update", [])}
-        insert_cols = {c: F.col(f"source.{c}") for c in merge_columns.get("insert", [])}
-        merge_builder.whenMatchedUpdate(set=update_cols) \
-                     .whenNotMatchedInsert(values=insert_cols) \
-                     .execute()
-
-    # ── Arkiver JSON-fil etter vellykket MERGE ────────────────────────────────
-    try:
-        file_name    = most_recent.name
-        folder_path  = most_recent.path.replace(file_name, "")
-        archive_path = f"{folder_path}archive/{file_name}"
-        if most_recent.isDir:
-            print(f"  -> ADVARSEL: Ingen fil å arkivere – hopper over")
-        else:
-            notebookutils.fs.mkdirs(f"{folder_path}archive/")
-            notebookutils.fs.mv(most_recent.path, archive_path, overwrite=True)
-            print(f"  -> Arkivert: {file_name} → archive/")
-    except Exception as e:
-        print(f"  -> ADVARSEL: Arkivering feilet: {e}")
-
-
-    return row_count
-
 
 # METADATA ********************
 
@@ -1800,6 +1673,99 @@ def load_log_store(spark) -> dict:
     rows = query_metadata_table(spark, "metadata.log_store")
     return {row["log_id"]: row for row in rows}
 
+
+def load_sm_store(spark):
+    df = spark.read.option("url", METADATA_DB_URL).mssql("metadata.sm_store")
+    return {row["sm_function_id"]: row["function_name"] for row in df.collect()}
+
+def refresh_semantic_model(workspace_id, dataset_name,
+                           notify_option="NoNotification",
+                           refresh_type="automatic",
+                           timeout=600):
+    import sempy.fabric as fabric
+    import time
+
+    client   = fabric.FabricRestClient()
+    datasets = fabric.list_datasets(workspace=workspace_id)
+
+    # Find dataset ID column (varies by sempy version)
+    id_column = None
+    for candidate in ["Dataset ID", "Dataset Id", "id", "datasetId", "DatasetId"]:
+        if candidate in datasets.columns:
+            id_column = candidate
+            break
+
+    if not id_column:
+        raise ValueError(
+            f"Could not find dataset ID column. "
+            f"Available columns: {datasets.columns.tolist()}"
+        )
+
+    match = datasets[datasets["Dataset Name"] == dataset_name]
+
+    if match.empty:
+        raise ValueError(
+            f"Dataset '{dataset_name}' not found in workspace {workspace_id}. "
+            f"Available: {datasets['Dataset Name'].tolist()}"
+        )
+
+    dataset_id = match[id_column].values[0]
+    print(f"  Dataset ID   : {dataset_id}")
+    print(f"  Refresh type : {refresh_type}")
+
+    resp = client.post(
+        f"v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes",
+        json={
+            "notifyOption": notify_option,
+            "type":         refresh_type
+        }
+    )
+    if resp.status_code not in (200, 202):
+        raise Exception(f"Refresh failed HTTP {resp.status_code}: {resp.text}")
+    print(f"  Refresh started: HTTP {resp.status_code}")
+
+    start = time.time()
+    while time.time() - start < timeout:
+        history = client.get(
+            f"v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes?$top=1"
+        ).json()
+        status = history["value"][0]["status"]
+        print(f"  Status: {status}")
+
+        if status == "Completed":
+            return "Completed"
+        if status == "Failed":
+            raise Exception(f"Refresh failed: {history['value'][0]}")
+
+        time.sleep(20)
+
+    raise TimeoutError(f"Refresh timeout after {timeout}s for '{dataset_name}'")
+
+
+
+
+def get_last_refresh_status(workspace_id, dataset_name):
+    """Returns last refresh details from Fabric."""
+    client = fabric.FabricRestClient()
+
+    datasets   = fabric.list_datasets(workspace=workspace_id)
+    id_column  = next(c for c in ["Dataset ID", "Dataset Id", "id"] 
+                      if c in datasets.columns)
+    dataset_id = datasets[datasets["Dataset Name"] == dataset_name][id_column].values[0]
+
+    history = client.get(
+        f"v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes?$top=1"
+    ).json()
+
+    last = history["value"][0]
+    print(f"\n  Last refresh summary:")
+    print(f"    Status      : {last.get('status')}")
+    print(f"    Start       : {last.get('startTime')}")
+    print(f"    End         : {last.get('endTime')}")
+    print(f"    Refresh type: {last.get('refreshType')}")
+    print(f"    Triggered by: {last.get('requestId')}")
+
+    return last
 
 def load_column_mappings(spark, mapping_id: str) -> list:
     """

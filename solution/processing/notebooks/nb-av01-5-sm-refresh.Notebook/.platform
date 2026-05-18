@@ -2,11 +2,11 @@
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
   "metadata": {
     "type": "Notebook",
-    "displayName": "2_AquaQuiver_Base_To_Curated",
+    "displayName": "nb-av01-5-sm-refresh",
     "description": "New notebook"
   },
   "config": {
     "version": "2.0",
-    "logicalId": "a1100dd6-157a-849e-44a9-33b34addde4a"
+    "logicalId": "142b3ef6-3293-be3e-440e-17e59dcbab3d"
   }
 }

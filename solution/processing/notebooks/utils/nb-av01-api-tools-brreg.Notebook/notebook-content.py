@@ -215,6 +215,8 @@ ENDRINGSTYPE_SLETT  = {"Sletting", "Fjernet"}
 
 # ── HTTP helper ───────────────────────────────────────────────────────────────
 
+
+
 def _brreg_request_with_retry(url, max_retries=3, base_delay=1.0, **kwargs):
     """
     Make HTTP GET request with retry and exponential backoff for transient errors.
@@ -253,8 +255,63 @@ def extract_organisasjonsnumre(oppdateringer: list) -> list:
         return []
     return [str(item["organisasjonsnummer"]) for item in oppdateringer if item.get("organisasjonsnummer")]
 
+def fetch_enheter_batch(base_url: str, orgnr_liste: list, batch_size: int = 100) -> list:
+    """
+    Henter full enhet-data i batch via ?organisasjonsnummer=111,222,333
+    22 391 enkeltoppslag → 224 batch-kall
 
-def fetch_enheter_enkeltoppslag(base_url: str, orgnr_liste: list, headers: dict = None) -> list:
+    Args:
+        base_url:   BRREG API base URL
+        orgnr_liste: Liste med organisasjonsnummer å hente
+        batch_size: Antall orgnr per kall (maks ~100 er trygt)
+
+    Returns:
+        Liste med fulle enhet-dicts
+    """
+    if not orgnr_liste:
+        return []
+
+    enheter      = []
+    total        = len(orgnr_liste)
+    antall_batch = (total + batch_size - 1) // batch_size
+
+    for i in range(0, total, batch_size):
+        batch    = orgnr_liste[i : i + batch_size]
+        batch_nr = i // batch_size + 1
+
+        response = _brreg_request_with_retry(
+            f"{base_url}/enheter",
+            params={
+                "organisasjonsnummer" : ",".join(batch),
+                "size"                : batch_size,
+            },
+            headers=BRREG_HEADERS
+        )
+        data          = response.json()
+        batch_enheter = data.get("_embedded", {}).get("enheter", [])
+        enheter.extend(batch_enheter)
+
+        if batch_nr % 10 == 0 or batch_nr == antall_batch:
+            print(f"  -> Batch {batch_nr}/{antall_batch} "
+                  f"({len(enheter):,}/{total:,} enheter)")
+
+        time.sleep(0.05)
+
+    print(f"  Fetched {len(enheter):,} enheter totalt "
+          f"({total - len(enheter):,} ikke funnet/slettet)")
+    return enheter
+
+def fetch_enheter_enkeltoppslag(base_url, orgnr_liste, headers=None):
+    """
+    DEPRECATED – bruk fetch_enheter_batch() i stedet.
+    22 391 kall × 2 sek = 12 timer vs batch: 224 kall × 0.05 sek = 11 sek
+    Beholdt for referanse.
+    """
+    raise DeprecationWarning(
+        "fetch_enheter_enkeltoppslag er for tregt. Bruk fetch_enheter_batch()."
+    )
+
+def fetch_enheter_enkeltoppslag_old(base_url: str, orgnr_liste: list, headers: dict = None) -> list:
     """
     Fetch full enhet objects one by one for a list of organisasjonsnummer.
     BRREG har ikke batch-endepunkt – henter sekvensielt.
@@ -643,8 +700,8 @@ def ingest_brreg(source_meta: dict, instr: dict, api_key: str, context: dict) ->
     print(f"  -> Upsert: {len(orgnr_upsert):,}  |  Slett: {len(orgnr_slett):,}")
     context["_orgnr_slett"] = orgnr_slett
 
-    # ── Enkeltoppslag og flatten ───────────────────────────────────────────────
-    enheter_raw  = fetch_enheter_enkeltoppslag(base_url, orgnr_upsert)
+    # ── Batch-oppslag og flatten ───────────────────────────────────────────────────
+    enheter_raw  = fetch_enheter_batch(base_url, orgnr_upsert)
     enheter_flat = [flatten_enhet(e) for e in enheter_raw]
 
     # ── Oppdater watermark ────────────────────────────────────────────────────
@@ -886,6 +943,30 @@ if TEST_MODE:
 if TEST_MODE:
     # Nullstill før test 1
     brreg_cleanup(spark, RAW_BASE_PATH, reset_watermark=True)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+SILVER = "lh_av01_silver"
+
+TABELLER_MED_CDF_SILVER = [
+    f"`{CATALOG}`.`{SILVER}`.brreg.enheter",
+    f"`{CATALOG}`.`{SILVER}`.sharepoint.meldingslogg",
+]
+
+print("=== Aktiverer CDF på Silver ===")
+for tabell in TABELLER_MED_CDF_SILVER:
+    spark.sql(f"""
+        ALTER TABLE {tabell}
+        SET TBLPROPERTIES (delta.enableChangeDataFeed = true)
+    """)
+    print(f"  ✅ CDF aktivert: {tabell}")
 
 # METADATA ********************
 

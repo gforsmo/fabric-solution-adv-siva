@@ -15,6 +15,7 @@ CREATE TABLE [instructions].[transformations] (
     [modified_date]      DATETIME2 (7) DEFAULT (getdate()) NULL,
     [pipeline_name]      VARCHAR (100) NULL,
     [notebook_name]      VARCHAR (100) NULL,
+    [use_cdf]            BIT           DEFAULT ((0)) NOT NULL,
     PRIMARY KEY CLUSTERED ([transform_instr_id] ASC),
     CONSTRAINT [FK_transform_log] FOREIGN KEY ([log_function_id]) REFERENCES [metadata].[log_store] ([log_id])
 );
