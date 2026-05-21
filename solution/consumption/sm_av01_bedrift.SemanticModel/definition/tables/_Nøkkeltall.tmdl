@@ -1,0 +1,208 @@
+/// Sentralisert måltallstabell. Inneholder alle KPI-er og DAX-mål for rapportbruk.
+table _Nøkkeltall
+	lineageTag: aa11bb22-cc33-dd44-ee55-ff6677889900
+
+	/// Tidspunkt for siste vellykkede oppdatering av semantisk modell.
+	measure Oppdatert =
+			VAR SisteOppdatering =
+			    CALCULATE (
+			        MAX ( Oppdateringsmetadata[Fullført] ),
+			        Oppdateringsmetadata[Status] = "Completed"
+			    )
+			RETURN
+			    IF (
+			        ISBLANK ( SisteOppdatering ),
+			        "Ingen vellykket oppdatering",
+			        FORMAT ( SisteOppdatering, "dd.MM.yyyy HH:mm" )
+			    )
+		displayFolder: Oppdateringsstatus
+		lineageTag: a1b2c3d4-e5f6-4890-9234-567890abcdef
+
+	/// Beskrivelse av hvor lenge siden siste vellykkede oppdatering ('5 minutter siden', 'I går kl. 06:00' osv.).
+	measure Dataalder =
+			VAR SisteOppdatering =
+			    CALCULATE (
+			        MAX ( Oppdateringsmetadata[Fullført] ),
+			        Oppdateringsmetadata[Status] = "Completed"
+			    )
+			VAR Naa        = NOW ()
+			VAR MinSiden   = DATEDIFF ( SisteOppdatering, Naa, MINUTE )
+			VAR TimerSiden = DATEDIFF ( SisteOppdatering, Naa, HOUR )
+			VAR DagerSiden = DATEDIFF ( SisteOppdatering, Naa, DAY )
+			RETURN
+			    SWITCH (
+			        TRUE (),
+			        ISBLANK ( SisteOppdatering ), "Ingen vellykket oppdatering",
+			        MinSiden < 1,                 "Akkurat nå",
+			        MinSiden = 1,                 "1 minutt siden",
+			        MinSiden < 60,                FORMAT ( MinSiden, "0" ) & " minutter siden",
+			        TimerSiden = 1,               "1 time siden",
+			        TimerSiden < 24,              FORMAT ( TimerSiden, "0" ) & " timer siden",
+			        DagerSiden = 1,               "I går kl. " & FORMAT ( SisteOppdatering, "HH:mm" ),
+			        DagerSiden < 7,               FORMAT ( DagerSiden, "0" ) & " dager siden",
+			        FORMAT ( SisteOppdatering, "dd.MM.yyyy HH:mm" )
+			    )
+		displayFolder: Oppdateringsstatus
+		lineageTag: b1c2d3e4-f567-4901-9345-67890abcdef0
+
+	/// Type for siste vellykkede oppdatering (Full, Incremental, osv.).
+	measure 'Siste oppdateringstype' =
+			VAR SisteOppdatering =
+			    CALCULATE (
+			        MAX ( Oppdateringsmetadata[Fullført] ),
+			        Oppdateringsmetadata[Status] = "Completed"
+			    )
+			RETURN
+			    CALCULATE (
+			        SELECTEDVALUE ( Oppdateringsmetadata[Oppdateringstype], "Ukjent" ),
+			        Oppdateringsmetadata[Fullført] = SisteOppdatering,
+			        Oppdateringsmetadata[Status]   = "Completed"
+			    )
+		displayFolder: Oppdateringsstatus
+		lineageTag: c1d2e3f4-5678-4012-9456-7890abcdef01
+
+	/// Status for siste oppdateringsforsøk (kan være Failed selv om forrige Completed eksisterer).
+	measure 'Siste oppdateringsstatus' =
+			VAR SisteForsoek = MAX ( Oppdateringsmetadata[Fullført] )
+			RETURN
+			    CALCULATE (
+			        SELECTEDVALUE ( Oppdateringsmetadata[Status], "Ukjent" ),
+			        Oppdateringsmetadata[Fullført] = SisteForsoek
+			    )
+		displayFolder: Oppdateringsstatus
+		lineageTag: d1e2f3a4-5678-4123-9567-890abcdef012
+
+	/// Antall unike bedrifter i utvalget.
+	measure 'Antall bedrifter' = COUNTROWS ( Bedrifter )
+		formatString: #,##0
+		displayFolder: Tellinger
+		lineageTag: 11111111-aaaa-4000-9000-000000000001
+
+	/// Antall bedrifter som er markert som aktive (ikke under avvikling eller konkurs).
+	measure 'Antall aktive bedrifter' =
+			CALCULATE (
+			    COUNTROWS ( Bedrifter ),
+			    Bedrifter[Er aktiv] = TRUE
+			)
+		formatString: #,##0
+		displayFolder: Tellinger
+		lineageTag: 11111111-aaaa-4000-9000-000000000002
+
+	/// Totalt antall ansatte på tvers av valgte bedrifter (snapshot).
+	measure 'Sum ansatte' = SUM ( Bedrifter[Antall ansatte] )
+		formatString: #,##0
+		displayFolder: Tellinger
+		lineageTag: 11111111-aaaa-4000-9000-000000000003
+
+	/// Antall meldinger i Meldingslogg for valgt periode.
+	measure 'Antall meldinger' = COUNTROWS ( Meldingslogg )
+		formatString: #,##0
+		displayFolder: Tellinger
+		lineageTag: 11111111-aaaa-4000-9000-000000000004
+
+	/// Sum av driftsinntekter for valgt periode (kroner).
+	measure Driftsinntekter = SUM ( Regnskap[Sum driftsinntekter] )
+		formatString: #,##0
+		displayFolder: Resultatregnskap
+		lineageTag: 22222222-aaaa-4000-9000-000000000001
+
+	/// Sum av driftskostnader for valgt periode (kroner).
+	measure Driftskostnader = SUM ( Regnskap[Sum driftskostnader] )
+		formatString: #,##0
+		displayFolder: Resultatregnskap
+		lineageTag: 22222222-aaaa-4000-9000-000000000002
+
+	/// Driftsresultat: driftsinntekter minus driftskostnader (kroner).
+	measure Driftsresultat = SUM ( Regnskap[Driftsresultat] )
+		formatString: #,##0
+		displayFolder: Resultatregnskap
+		lineageTag: 22222222-aaaa-4000-9000-000000000003
+
+	/// Årsresultat etter skatt (kroner).
+	measure Årsresultat = SUM ( Regnskap[Årsresultat] )
+		formatString: #,##0
+		displayFolder: Resultatregnskap
+		lineageTag: 22222222-aaaa-4000-9000-000000000004
+
+	/// Driftsmargin = Driftsresultat / Driftsinntekter. Måler operasjonell lønnsomhet.
+	measure 'Driftsmargin %' = DIVIDE ( [Driftsresultat], [Driftsinntekter] )
+		formatString: 0.0%
+		displayFolder: Resultatregnskap
+		lineageTag: 22222222-aaaa-4000-9000-000000000005
+
+	/// Sum eiendeler (kroner).
+	measure 'Sum eiendeler' = SUM ( Regnskap[Sum eiendeler] )
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: 33333333-aaaa-4000-9000-000000000001
+
+	/// Sum egenkapital (kroner).
+	measure 'Sum egenkapital' = SUM ( Regnskap[Sum egenkapital] )
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: 33333333-aaaa-4000-9000-000000000002
+
+	/// Sum gjeld (kroner).
+	measure 'Sum gjeld' = SUM ( Regnskap[Sum gjeld] )
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: 33333333-aaaa-4000-9000-000000000003
+
+	/// Egenkapitalandel = Egenkapital / Sum eiendeler. Måler soliditet. Norm: > 30 % regnes som solid.
+	measure 'EK-andel %' = DIVIDE ( [Sum egenkapital], [Sum eiendeler] )
+		formatString: 0.0%
+		displayFolder: Balanse
+		lineageTag: 33333333-aaaa-4000-9000-000000000004
+
+	/// Driftsinntekter for forrige regnskapsår, basert på aktiv relasjon Regnskap→Dato.
+	measure 'Driftsinntekter ifjor' =
+			CALCULATE (
+			    [Driftsinntekter],
+			    SAMEPERIODLASTYEAR ( Dato[Dato] )
+			)
+		formatString: #,##0
+		displayFolder: Vekst
+		lineageTag: 44444444-aaaa-4000-9000-000000000001
+
+	/// Prosentvis vekst i driftsinntekter mot fjoråret. Krever at Dato-dimensjonen er filtrert til år.
+	measure 'Inntektsvekst %' =
+			VAR Iaar  = [Driftsinntekter]
+			VAR Ifjor = [Driftsinntekter ifjor]
+			RETURN DIVIDE ( Iaar - Ifjor, Ifjor )
+		formatString: 0.0%
+		displayFolder: Vekst
+		lineageTag: 44444444-aaaa-4000-9000-000000000002
+
+	/// Årsresultat for forrige regnskapsår.
+	measure 'Årsresultat ifjor' =
+			CALCULATE (
+			    [Årsresultat],
+			    SAMEPERIODLASTYEAR ( Dato[Dato] )
+			)
+		formatString: #,##0
+		displayFolder: Vekst
+		lineageTag: 44444444-aaaa-4000-9000-000000000003
+
+	/// Prosentvis vekst i årsresultat mot fjoråret.
+	measure 'Resultatvekst %' =
+			VAR Iaar  = [Årsresultat]
+			VAR Ifjor = [Årsresultat ifjor]
+			RETURN DIVIDE ( Iaar - Ifjor, Ifjor )
+		formatString: 0.0%
+		displayFolder: Vekst
+		lineageTag: 44444444-aaaa-4000-9000-000000000004
+
+	column _measure_anchor
+		isHidden
+		lineageTag: 23fe3f68-4f69-42b6-b949-6a708afbad94
+		isNameInferred
+		sourceColumn: [_measure_anchor]
+
+	partition _Nøkkeltall = calculated
+		mode: import
+		source = ROW("_measure_anchor", 1)
+
+	annotation PBI_Id = aa11bb22cc33dd44ee55ff6677889900
+
+	annotation PBI_ResultType = Table
+

@@ -1,0 +1,16 @@
+relationship Meldingslogg_Bedrifter
+	fromColumn: Meldingslogg.bedrift_surrogate_id
+	toColumn: Bedrifter.bedrift_surrogate_id
+
+relationship Regnskap_Bedrifter
+	fromColumn: Regnskap.bedrift_surrogate_id
+	toColumn: Bedrifter.bedrift_surrogate_id
+
+relationship Meldingslogg_Dato
+	fromColumn: Meldingslogg.dato_surrogate_id
+	toColumn: Dato.dato_surrogate_id
+
+relationship Regnskap_Dato
+	fromColumn: Regnskap.regnskapsaar_dato_id
+	toColumn: Dato.dato_surrogate_id
+

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "624da0f7e73f1897aaa9",
+  "position": {
+    "x": 14.110236220472441,
+    "y": 652.09448818897636,
+    "z": 3,
+    "height": 67.5275590551181,
+    "width": 883.90551181102364,
+    "tabOrder": 3
+  },
+  "visual": {
+    "visualType": "multiRowCard",
+    "autoSelectVisualType": true,
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Nøkkeltall"
+                    }
+                  },
+                  "Property": "Dataalder"
+                }
+              },
+              "queryRef": "_Nøkkeltall.Dataalder",
+              "nativeQueryRef": "Dataalder"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Nøkkeltall"
+                    }
+                  },
+                  "Property": "Oppdatert"
+                }
+              },
+              "queryRef": "_Nøkkeltall.Oppdatert",
+              "nativeQueryRef": "Oppdatert"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Nøkkeltall"
+                    }
+                  },
+                  "Property": "Siste oppdateringsstatus"
+                }
+              },
+              "queryRef": "_Nøkkeltall.Siste oppdateringsstatus",
+              "nativeQueryRef": "Siste oppdateringsstatus"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Nøkkeltall"
+                    }
+                  },
+                  "Property": "Siste oppdateringstype"
+                }
+              },
+              "queryRef": "_Nøkkeltall.Siste oppdateringstype",
+              "nativeQueryRef": "Siste oppdateringstype"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Measure": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "_Nøkkeltall"
+                  }
+                },
+                "Property": "Dataalder"
+              }
+            },
+            "direction": "Descending"
+          }
+        ]
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

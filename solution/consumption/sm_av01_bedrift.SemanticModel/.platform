@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "sm_av01_bedrift"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "029fd446-23ef-92a9-4932-07d5310bb325"
+  }
+}

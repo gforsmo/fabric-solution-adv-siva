@@ -1,0 +1,196 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "fce1ef3bb88815f17420",
+  "position": {
+    "x": 27.207729468599034,
+    "y": 136.03864734299518,
+    "z": 0,
+    "height": 563.94202898550725,
+    "width": 1205.7971014492753,
+    "tabOrder": 0
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Bedrifter"
+                    }
+                  },
+                  "Property": "Navn"
+                }
+              },
+              "queryRef": "Bedrifter.Navn",
+              "nativeQueryRef": "Navn"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Bedrifter"
+                    }
+                  },
+                  "Property": "Organisasjonsnummer"
+                }
+              },
+              "queryRef": "Bedrifter.Organisasjonsnummer",
+              "nativeQueryRef": "Organisasjonsnummer"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Nøkkeltall"
+                    }
+                  },
+                  "Property": "Sum egenkapital"
+                }
+              },
+              "queryRef": "_Nøkkeltall.Sum egenkapital",
+              "nativeQueryRef": "Sum egenkapital"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Nøkkeltall"
+                    }
+                  },
+                  "Property": "Sum eiendeler"
+                }
+              },
+              "queryRef": "_Nøkkeltall.Sum eiendeler",
+              "nativeQueryRef": "Sum eiendeler"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Nøkkeltall"
+                    }
+                  },
+                  "Property": "Sum gjeld"
+                }
+              },
+              "queryRef": "_Nøkkeltall.Sum gjeld",
+              "nativeQueryRef": "Sum gjeld"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "_Nøkkeltall"
+                    }
+                  },
+                  "Property": "EK-andel %"
+                }
+              },
+              "queryRef": "_Nøkkeltall.EK-andel %",
+              "nativeQueryRef": "EK-andel %"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  },
+  "filterConfig": {
+    "filters": [
+      {
+        "name": "e7191128e8f54b2aa66a",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Bedrifter"
+              }
+            },
+            "Property": "Organisasjonsnummer"
+          }
+        },
+        "type": "Categorical"
+      },
+      {
+        "name": "76a1d13e3292ee75a5ac",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Bedrifter"
+              }
+            },
+            "Property": "Navn"
+          }
+        },
+        "type": "Categorical"
+      },
+      {
+        "name": "b2e77f1657060553d1f1",
+        "field": {
+          "Measure": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "_Nøkkeltall"
+              }
+            },
+            "Property": "Sum egenkapital"
+          }
+        },
+        "type": "Advanced"
+      },
+      {
+        "name": "5a808aa1017e125a0db4",
+        "field": {
+          "Measure": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "_Nøkkeltall"
+              }
+            },
+            "Property": "Sum eiendeler"
+          }
+        },
+        "type": "Advanced"
+      },
+      {
+        "name": "457af5e2c283ffd5c461",
+        "field": {
+          "Measure": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "_Nøkkeltall"
+              }
+            },
+            "Property": "Sum gjeld"
+          }
+        },
+        "type": "Advanced"
+      },
+      {
+        "name": "afd4fbb4a0a579f0a045",
+        "field": {
+          "Measure": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "_Nøkkeltall"
+              }
+            },
+            "Property": "EK-andel %"
+          }
+        },
+        "type": "Advanced"
+      }
+    ]
+  }
+}

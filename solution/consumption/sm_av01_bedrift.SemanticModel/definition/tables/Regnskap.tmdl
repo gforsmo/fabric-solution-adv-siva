@@ -1,0 +1,258 @@
+/// Faktatabell for årsregnskap per bedrift og regnskapsår. Inneholder utvalgte poster fra resultatregnskap (driftsinntekter, driftskostnader, driftsresultat, årsresultat) og balanse (eiendeler, egenkapital, gjeld). Alle beløp er i hele kroner (NOK).
+table Regnskap
+	lineageTag: 3f38c0e6-5ab4-4345-8cfc-7af19db05307
+
+	column regnskap_surrogate_id
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: 8558e932-986b-4676-a3e6-f143d0c1f0be
+		summarizeBy: none
+		sourceColumn: regnskap_surrogate_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column bedrift_surrogate_id
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: 0b484b0c-7aac-4efa-877f-a4f6e026ef86
+		summarizeBy: none
+		sourceColumn: bedrift_surrogate_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column Organisasjonsnummer
+		dataType: string
+		lineageTag: 20844f66-40e0-463c-bf4b-c1ff02e9c34e
+		summarizeBy: none
+		sourceColumn: orgnr
+
+		changedProperty = Name
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Regnskapsåret som denne radens tall gjelder for (kalenderår, f.eks. 2024). Foretrekker tidsanalyse via Dato-dimensjonen fremfor denne kolonnen.
+	column Årstall
+		dataType: int64
+		formatString: 0
+		lineageTag: 669c0a5c-1624-47bb-8cb2-1a99cbc1418e
+		summarizeBy: none
+		sourceColumn: aarstall
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sum salgsinntekter'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: 3351bd9c-dcfa-4d5b-a3ca-c812bb6430ef
+		summarizeBy: sum
+		sourceColumn: sum_salgsinntekter
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sum driftsinntekter'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: ae84569b-e2bd-4530-98d9-cde1fee40ba8
+		summarizeBy: sum
+		sourceColumn: sum_driftsinntekter
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Andre driftsinntekter'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: 06d8f7a4-ca5d-460b-ae61-c063c8140890
+		summarizeBy: sum
+		sourceColumn: andre_driftsinntekter
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sum finansinntekter'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: 41a07870-59c3-403d-8c93-64378b5236c2
+		summarizeBy: sum
+		sourceColumn: sum_finansinntekter
+
+		annotation SummarizationSetBy = Automatic
+
+	column Finanskostnader
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: b91f61e7-37d0-44bf-b1f8-295f5649500b
+		summarizeBy: sum
+		sourceColumn: finanskostnader
+
+		annotation SummarizationSetBy = Automatic
+
+	column Vareforbruk
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: ff37411a-063e-4b90-a61e-2286f0aa509a
+		summarizeBy: sum
+		sourceColumn: vareforbruk
+
+		annotation SummarizationSetBy = Automatic
+
+	column Lønnskostnader
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: 415d6313-8d26-4f16-a393-6044d2296e37
+		summarizeBy: sum
+		sourceColumn: loennskostnader
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sum driftskostnader'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: 5d4938ec-5f48-4d6a-b2e6-b9f95bb77e67
+		summarizeBy: sum
+		sourceColumn: sum_driftskostnader
+
+		annotation SummarizationSetBy = Automatic
+
+	column Driftsresultat
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: 4b41407b-a76e-4cb7-8601-85e363a95a4c
+		summarizeBy: sum
+		sourceColumn: driftsresultat
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Ordinært resultat før skatt'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: fced78fe-3f0b-4408-973e-b95a3ec322a1
+		summarizeBy: sum
+		sourceColumn: ordinaert_resultat_foer_skatt
+
+		annotation SummarizationSetBy = Automatic
+
+	column Årsresultat
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: 91a70ab0-cdf2-456e-8e6f-f5a33551667d
+		summarizeBy: sum
+		sourceColumn: aarsresultat
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sum eiendeler'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: 74d845b6-4e90-4c6a-8464-32d08af1ab35
+		summarizeBy: sum
+		sourceColumn: sum_eiendeler
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sum egenkapital'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: 50534b7f-c5e0-48f0-93f9-6b45344ee63e
+		summarizeBy: sum
+		sourceColumn: sum_egenkapital
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sum gjeld'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: 24a19f24-49df-44d4-920e-13bd82d6f41f
+		summarizeBy: sum
+		sourceColumn: sum_gjeld
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Kasse, bank og post'
+		dataType: double
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: d9267631-8a08-4f4b-8fa9-eed5c9887eee
+		summarizeBy: sum
+		sourceColumn: kasse_bank_post
+
+		annotation SummarizationSetBy = Automatic
+
+	column Kundefordringer
+		dataType: double
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: 841e41b0-15aa-4469-8096-850a2d23f46d
+		summarizeBy: sum
+		sourceColumn: kundefordringer
+
+		annotation SummarizationSetBy = Automatic
+
+	column Lederlønn
+		dataType: double
+		formatString: #,##0
+		displayFolder: Resultat
+		lineageTag: 9b58c999-32d6-4311-884c-fed59d49e5bd
+		summarizeBy: sum
+		sourceColumn: lederloenn
+
+		annotation SummarizationSetBy = Automatic
+
+	column Aksje-/selskapskapital
+		dataType: double
+		formatString: #,##0
+		displayFolder: Balanse
+		lineageTag: 1c1a2e2c-44c2-4836-8cbc-bff20df2826e
+		summarizeBy: sum
+		sourceColumn: aksje_selskapskapital
+
+		annotation SummarizationSetBy = Automatic
+
+	column _loading_ts
+		dataType: dateTime
+		isHidden
+		formatString: General Date
+		lineageTag: 6d7ba7b8-2797-4c11-aa3e-5a06e64c22e2
+		summarizeBy: none
+		sourceColumn: _loading_ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column regnskapsaar_dato_id
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: 7b6a8bb2-9169-4a90-b4fa-972eb572d347
+		summarizeBy: none
+		sourceColumn: regnskapsaar_dato_id
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Regnskap = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Databases("qdk4d5jdihvellkm2wjw25c6f4-i7usd3he4rhebb5h6nubzv6baa.datawarehouse.fabric.microsoft.com"),
+				    lh_av01_gold = Source{[Name="lh_av01_gold"]}[Data],
+				    siva_fact_regnskap = lh_av01_gold{[Schema="siva",Item="fact_regnskap"]}[Data]
+				in
+				    siva_fact_regnskap
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+
