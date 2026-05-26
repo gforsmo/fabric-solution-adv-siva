@@ -1,0 +1,272 @@
+/// Bedriftsdimensjon. Stamdata om foretak hentet fra Brønnøysundregistrene (Enhetsregisteret/Foretaksregisteret). Inneholder klassifisering (organisasjonsform, sektorkode, næring), adresseinformasjon og status (aktiv, konkurs, under avvikling).
+table Bedrifter
+	lineageTag: e0b0b571-8b6a-4364-815f-285ce92245c9
+
+	column bedrift_surrogate_id
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: 359f6553-5eac-4cef-a02f-4b2b08ab8dcb
+		summarizeBy: none
+		sourceColumn: bedrift_surrogate_id
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Bedriftens 9-sifrede organisasjonsnummer fra Brønnøysundregistrene. Unik identifikator for foretaket.
+	column Organisasjonsnummer
+		dataType: string
+		lineageTag: 9035ee77-c1a0-42cc-8066-1bb9fe5b38bb
+		summarizeBy: none
+		sourceColumn: organisasjonsnummer
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Foretakets registrerte navn.
+	column Navn
+		dataType: string
+		lineageTag: 28322286-1759-484c-b6b3-b16ea49e6d98
+		summarizeBy: none
+		sourceColumn: navn
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Organisasjonsform (kode)'
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: 809c0c42-3c4b-4fa0-9bca-be8176137deb
+		summarizeBy: none
+		sourceColumn: organisasjonsform_kode
+
+		annotation SummarizationSetBy = Automatic
+
+	column Organisasjonsform
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: cfc77623-a0fe-4cbe-8f07-ac6e4d11f7d3
+		summarizeBy: none
+		sourceColumn: organisasjonsform_beskrivelse
+
+		annotation SummarizationSetBy = Automatic
+
+	column Sektorkode
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: fc410510-f926-409e-8ff9-9a859bc1e570
+		summarizeBy: none
+		sourceColumn: institusjonellSektorkode_kode
+
+		annotation SummarizationSetBy = Automatic
+
+	column Sektor
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: a0baebef-e1c4-4a33-9660-3c4bbfbea898
+		summarizeBy: none
+		sourceColumn: institusjonellSektorkode_beskrivelse
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Næringskode 1'
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: 2a18fdcd-a40f-4860-93fb-c1992c90394b
+		summarizeBy: none
+		sourceColumn: naeringskode1_kode
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Næring 1'
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: f0b10e8c-feb5-4a6a-a023-29064d4fe986
+		summarizeBy: none
+		sourceColumn: naeringskode1_beskrivelse
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Næringskode 2'
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: 499869fb-64b9-48a2-9e23-71a7ee6f5890
+		summarizeBy: none
+		sourceColumn: naeringskode2_kode
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Næring 2'
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: b2bad35e-af9d-42f7-a4d9-036fb0766f00
+		summarizeBy: none
+		sourceColumn: naeringskode2_beskrivelse
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Næringskode 3'
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: 87be3a77-20c1-465b-8ecb-c4c861a9e6cf
+		summarizeBy: none
+		sourceColumn: naeringskode3_kode
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Næring 3'
+		dataType: string
+		displayFolder: Klassifisering
+		lineageTag: ecbd3412-021b-4b37-ae7d-71f62be0e344
+		summarizeBy: none
+		sourceColumn: naeringskode3_beskrivelse
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Antall ansatte registrert på bedriften (snapshot fra siste oppdatering). Bruk måltallet 'Sum ansatte' for aggregering.
+	column 'Antall ansatte'
+		dataType: int64
+		formatString: #,##0
+		lineageTag: abd5e72c-ed4f-4f5c-b503-6de3ac8df76b
+		summarizeBy: none
+		sourceColumn: antallAnsatte
+
+		annotation SummarizationSetBy = User
+
+	column Registreringsdato
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 299711d9-28c8-435d-bf49-c9f578676904
+		summarizeBy: none
+		sourceColumn: registreringsdato
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column Stiftelsesdato
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 09338c56-2bb6-45e9-9e82-ded642044de7
+		summarizeBy: none
+		sourceColumn: stiftelsesdato
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column Konkurs
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		lineageTag: faa2e174-2a2c-48b5-aa89-da2d46762a0b
+		summarizeBy: none
+		sourceColumn: konkurs
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Under avvikling'
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		lineageTag: 8f83dad4-1c77-432a-b5b8-143176bf7648
+		summarizeBy: none
+		sourceColumn: underAvvikling
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Er i konsern'
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		lineageTag: 34df2539-c57c-442a-92d2-21cb08da0cb0
+		summarizeBy: none
+		sourceColumn: erIKonsern
+
+		annotation SummarizationSetBy = Automatic
+
+	column Kommunenummer
+		dataType: string
+		displayFolder: Adresse
+		lineageTag: 09a50212-18d9-4de3-8a4a-370833691f49
+		summarizeBy: none
+		sourceColumn: forretningsadresse_kommunenummer
+
+		annotation SummarizationSetBy = Automatic
+
+	column Kommune
+		dataType: string
+		displayFolder: Adresse
+		lineageTag: 0f93261c-422d-4ce1-9bcf-e4bd0c6af313
+		summarizeBy: none
+		sourceColumn: forretningsadresse_kommune
+
+		annotation SummarizationSetBy = Automatic
+
+	column Postnummer
+		dataType: string
+		displayFolder: Adresse
+		lineageTag: 124fe654-97b0-4f50-ac17-56a07fdbdd2a
+		dataCategory: PostalCode
+		summarizeBy: none
+		sourceColumn: forretningsadresse_postnummer
+
+		annotation SummarizationSetBy = Automatic
+
+	column Poststed
+		dataType: string
+		displayFolder: Adresse
+		lineageTag: 9bb25ca2-6138-4806-8ede-f24ed611a69f
+		dataCategory: Place
+		summarizeBy: none
+		sourceColumn: forretningsadresse_poststed
+
+		annotation SummarizationSetBy = Automatic
+
+	column Landkode
+		dataType: string
+		displayFolder: Adresse
+		lineageTag: f5034161-30dc-469e-a31a-d1ba5bf8dbb6
+		dataCategory: Country
+		summarizeBy: none
+		sourceColumn: forretningsadresse_landkode
+
+		annotation SummarizationSetBy = Automatic
+
+	column Kapital
+		dataType: double
+		formatString: #,##0
+		lineageTag: 3fd19e8c-8a84-416e-a3f5-8b6e002efed8
+		summarizeBy: sum
+		sourceColumn: kapital_belop
+
+		annotation SummarizationSetBy = Automatic
+
+	/// TRUE hvis bedriften er aktiv (ikke under avvikling og ikke konkurs). Brukes som hovedfilter for "levende" bedrifter.
+	column 'Er aktiv'
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		lineageTag: f010f630-7d5b-46ea-abc3-8165ae323179
+		summarizeBy: none
+		sourceColumn: er_aktiv
+
+		annotation SummarizationSetBy = Automatic
+
+	column _loading_ts
+		dataType: dateTime
+		isHidden
+		formatString: General Date
+		lineageTag: 612f7830-69d5-4d01-b79c-1f5800529a08
+		summarizeBy: none
+		sourceColumn: _loading_ts
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Bedrifter = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Databases("qdk4d5jdihvellkm2wjw25c6f4-i7usd3he4rhebb5h6nubzv6baa.datawarehouse.fabric.microsoft.com"),
+				    lh_av01_gold = Source{[Name="lh_av01_gold"]}[Data],
+				    siva_dim_bedrift = lh_av01_gold{[Schema="siva",Item="dim_bedrift"]}[Data]
+				in
+				    siva_dim_bedrift
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+

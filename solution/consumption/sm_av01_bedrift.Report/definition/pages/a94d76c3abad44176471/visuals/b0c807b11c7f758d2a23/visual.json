@@ -1,0 +1,158 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "b0c807b11c7f758d2a23",
+  "position": {
+    "x": 13.938294010889292,
+    "y": 156.80580762250455,
+    "z": 2,
+    "height": 353.10344827586204,
+    "width": 1160.3629764065336,
+    "tabOrder": 2
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "autoSelectVisualType": true,
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Meldingslogg"
+                    }
+                  },
+                  "Property": "Selskapsnavn"
+                }
+              },
+              "queryRef": "Meldingslogg.Selskapsnavn",
+              "nativeQueryRef": "Selskapsnavn"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Meldingslogg"
+                    }
+                  },
+                  "Property": "Organisasjonsnummer"
+                }
+              },
+              "queryRef": "Meldingslogg.Organisasjonsnummer",
+              "nativeQueryRef": "Organisasjonsnummer"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Meldingslogg"
+                    }
+                  },
+                  "Property": "Meldingsinnhold"
+                }
+              },
+              "queryRef": "Meldingslogg.Meldingsinnhold",
+              "nativeQueryRef": "Meldingsinnhold"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Meldingslogg"
+                    }
+                  },
+                  "Property": "Hendelsesdato"
+                }
+              },
+              "queryRef": "Meldingslogg.Hendelsesdato",
+              "nativeQueryRef": "Hendelsesdato"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Column": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "Meldingslogg"
+                  }
+                },
+                "Property": "Selskapsnavn"
+              }
+            },
+            "direction": "Ascending"
+          }
+        ]
+      }
+    },
+    "drillFilterOtherVisuals": true
+  },
+  "filterConfig": {
+    "filters": [
+      {
+        "name": "6c0fdac59837785d5b6b",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Meldingslogg"
+              }
+            },
+            "Property": "Selskapsnavn"
+          }
+        },
+        "type": "Categorical"
+      },
+      {
+        "name": "e5cca5bc803c51ddbf27",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Meldingslogg"
+              }
+            },
+            "Property": "Organisasjonsnummer"
+          }
+        },
+        "type": "Categorical"
+      },
+      {
+        "name": "fe303e1e31814b7d260b",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Meldingslogg"
+              }
+            },
+            "Property": "Meldingsinnhold"
+          }
+        },
+        "type": "Categorical"
+      },
+      {
+        "name": "7cebb1fa5b933b53d881",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Meldingslogg"
+              }
+            },
+            "Property": "Hendelsesdato"
+          }
+        },
+        "type": "Categorical"
+      }
+    ]
+  }
+}

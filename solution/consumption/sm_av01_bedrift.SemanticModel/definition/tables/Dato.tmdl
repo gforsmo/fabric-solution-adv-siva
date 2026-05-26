@@ -1,0 +1,142 @@
+/// Datodimensjon. Konformert dato-dimensjon brukt på tvers av Meldingslogg (hendelsesdato) og Regnskap (regnskapsår). Markert som date table – støtter alle time-intelligence-funksjoner.
+table Dato
+	lineageTag: 83e25855-928d-4fff-9197-99a882bf699f
+
+	column dato_surrogate_id
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: 459d0450-a97d-4b8b-9d79-1aa27af05735
+		summarizeBy: none
+		sourceColumn: dato_surrogate_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column Dato
+		dataType: dateTime
+		isKey
+		formatString: Long Date
+		lineageTag: 48a96571-139c-4bb9-a718-6ba7a11050d2
+		dataCategory: Time
+		summarizeBy: none
+		sourceColumn: dato
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column År
+		dataType: int64
+		formatString: 0
+		lineageTag: 348b8282-0a13-45af-95d5-fff36403d5b5
+		summarizeBy: none
+		sourceColumn: aar
+
+		annotation SummarizationSetBy = Automatic
+
+	column Kvartal
+		dataType: int64
+		formatString: 0
+		lineageTag: a69b4744-a98d-4145-820c-1d637f32de1f
+		summarizeBy: none
+		sourceColumn: kvartal
+
+		annotation SummarizationSetBy = Automatic
+
+	column maaned
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: f61619bb-e4b8-477d-beeb-95701c6a782a
+		summarizeBy: none
+		sourceColumn: maaned
+
+		annotation SummarizationSetBy = Automatic
+
+	column Måned
+		dataType: string
+		lineageTag: aa889a61-723f-4ca6-b317-2a88d7d79a44
+		summarizeBy: none
+		sourceColumn: maaned_navn
+		sortByColumn: maaned
+
+		annotation SummarizationSetBy = Automatic
+
+	column Uke
+		dataType: int64
+		formatString: 0
+		lineageTag: 3226ceca-646e-4c1c-b76c-1f59ee571683
+		summarizeBy: none
+		sourceColumn: uke
+
+		annotation SummarizationSetBy = Automatic
+
+	column Dag
+		dataType: int64
+		formatString: 0
+		lineageTag: b7e12327-2ff7-4dcc-bc2b-71aeed0428ff
+		summarizeBy: none
+		sourceColumn: dag
+
+		annotation SummarizationSetBy = Automatic
+
+	column ukedag_nr
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: 085099d3-e349-4cce-b9e9-fdb2099ef978
+		summarizeBy: none
+		sourceColumn: ukedag_nr
+
+		annotation SummarizationSetBy = Automatic
+
+	column Ukedag
+		dataType: string
+		lineageTag: 69337d2f-e476-4765-9320-c520a8b640ca
+		summarizeBy: none
+		sourceColumn: ukedag_navn
+		sortByColumn: ukedag_nr
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Er helg'
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		lineageTag: a69c4743-a93f-4880-9a88-07ac591ac7ef
+		summarizeBy: none
+		sourceColumn: er_helg
+
+		annotation SummarizationSetBy = Automatic
+
+	column År-kvartal
+		dataType: string
+		lineageTag: b33ebdf9-43b9-417a-a089-28ed143719b8
+		summarizeBy: none
+		sourceColumn: aar_kvartal
+
+		annotation SummarizationSetBy = Automatic
+
+	column År-måned
+		dataType: string
+		lineageTag: dcad20a0-71c4-4686-906c-322c4454bd6f
+		summarizeBy: none
+		sourceColumn: aar_maaned
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Dato = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Databases("qdk4d5jdihvellkm2wjw25c6f4-i7usd3he4rhebb5h6nubzv6baa.datawarehouse.fabric.microsoft.com"),
+				    lh_av01_gold = Source{[Name="lh_av01_gold"]}[Data],
+				    siva_dim_dato = lh_av01_gold{[Schema="siva",Item="dim_dato"]}[Data]
+				in
+				    siva_dim_dato
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+
+	annotation __PBI_LocalDateTable = "false"
+

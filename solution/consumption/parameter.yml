@@ -1,0 +1,41 @@
+# fabric-cicd parameter file - consumption workspace
+# ---------------------------------------------------
+# fabric-cicd leter etter denne fila i repository_directory og kjorer
+# find/replace pa item-content for det aktuelle miljoet (DEV/TEST/PROD)
+# satt via FabricWorkspace(environment=...).
+#
+# Sannhetskilde: vl-av01-variables.VariableLibrary i processing-workspace.
+# Verdiene under MA holdes synkronisert med valueSets/{DEV,TEST,PROD}.json
+# for GOLD_SQL_ENDPOINT og CONSUMPTION_WORKSPACE_NAME.
+#
+# Hvorfor duplisering? fabric-cicd v0.1.x leser ikke VariableLibrary
+# automatisk i parameter.yml. Vi bruker derfor VariableLibrary som
+# dokumentert kilde og speiler verdiene her. Ved oppdatering: endre
+# BEGGE steder, eller generer denne fila fra VariableLibrary via et
+# build-script (anbefalt fremover, se config/scripts/).
+
+find_replace:
+
+  # ----- SQL endpoint for gold lakehouse ----------------------------------
+  # Speil av GOLD_SQL_ENDPOINT i vl-av01-variables.VariableLibrary
+  # Brukes av Bedrifter, Meldingslogg, Regnskap og refresh metadata
+  # sine partition source M-koder.
+  - find_value: "qdk4d5jdihvellkm2wjw25c6f4-i7usd3he4rhebb5h6nubzv6baa.datawarehouse.fabric.microsoft.com"
+    replace_value:
+      DEV:  "qdk4d5jdihvellkm2wjw25c6f4-i7usd3he4rhebb5h6nubzv6baa.datawarehouse.fabric.microsoft.com"
+      TEST: "REPLACE_WITH_TEST_GOLD_SQL_ENDPOINT.datawarehouse.fabric.microsoft.com"
+      PROD: "REPLACE_WITH_PROD_GOLD_SQL_ENDPOINT.datawarehouse.fabric.microsoft.com"
+    item_type: "SemanticModel"
+    file_path: "**/*.tmdl"
+
+  # ----- Lakehouse-navn (uncomment hvis navnet er ulikt per miljo) --------
+  # Hvis lh_av01_gold heter det samme i alle tre consumption-workspaces,
+  # treng du ikke denne regelen. Sjekk i Fabric portal.
+  #
+  # - find_value: 'lh_av01_gold'
+  #   replace_value:
+  #     DEV:  "lh_av01_gold"
+  #     TEST: "lh_av01_gold"
+  #     PROD: "lh_av01_gold"
+  #   item_type: "SemanticModel"
+  #   file_path: "**/*.tmdl"

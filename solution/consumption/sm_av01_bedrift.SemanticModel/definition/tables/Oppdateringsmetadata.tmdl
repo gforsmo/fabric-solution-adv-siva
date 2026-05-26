@@ -1,0 +1,100 @@
+/// Metadata om den semantiske modellens oppdateringer. Brukes av Oppdateringsstatus-måltallene for å vise siste oppdateringstidspunkt, status og type i rapporter.
+table Oppdateringsmetadata
+	lineageTag: f519fc4f-b55b-4d5c-8daf-720662a3d974
+
+	column Datasett
+		dataType: string
+		lineageTag: 90fa3b35-73a6-4084-991e-47a5b66b2426
+		summarizeBy: none
+		sourceColumn: dataset_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column Oppdateringstype
+		dataType: string
+		lineageTag: acfc2fd4-2283-49e9-8ecc-118d371569c0
+		summarizeBy: none
+		sourceColumn: refresh_type
+
+		annotation SummarizationSetBy = Automatic
+
+	column Oppdateringsmodus
+		dataType: string
+		lineageTag: 1d4bc21d-4938-44c3-906b-d03aacce4520
+		summarizeBy: none
+		sourceColumn: refresh_mode
+
+		annotation SummarizationSetBy = Automatic
+
+	column Status
+		dataType: string
+		lineageTag: 837bfa63-c270-44a7-bb59-fb26994cc7dc
+		summarizeBy: none
+		sourceColumn: status
+
+		annotation SummarizationSetBy = Automatic
+
+	column Startet
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 72c6166f-b75d-4067-99ef-37bdd1d26b52
+		summarizeBy: none
+		sourceColumn: started_at
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = DateTime
+
+	column Fullført
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 3f48c174-5ea7-4970-8b07-ee9aff54e024
+		summarizeBy: none
+		sourceColumn: completed_at
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = DateTime
+
+	column Forespørsels-ID
+		dataType: string
+		isHidden
+		lineageTag: 236c4356-3682-4403-a45d-328511d7250c
+		summarizeBy: none
+		sourceColumn: request_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column Pipeline
+		dataType: string
+		lineageTag: 5e91d6ed-051d-45d0-8ad2-ee2d6ba233e4
+		summarizeBy: none
+		sourceColumn: pipeline_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column Arbeidsområde
+		dataType: string
+		lineageTag: df0d2f36-74fd-455b-9f71-ab8e11b91ef5
+		summarizeBy: none
+		sourceColumn: workspace_name
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Oppdateringsmetadata = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database("qdk4d5jdihvellkm2wjw25c6f4-i7usd3he4rhebb5h6nubzv6baa.datawarehouse.fabric.microsoft.com", "lh_av01_gold"),
+				    siva_refresh_metadata = Source{[Schema="siva",Item="refresh_metadata"]}[Data],
+				    #"Changed Type" = Table.TransformColumnTypes(siva_refresh_metadata, {
+				        {"started_at",   type datetime},
+				        {"completed_at", type datetime}
+				    })
+				in
+				    #"Changed Type"
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+

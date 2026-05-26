@@ -1,0 +1,100 @@
+{
+  "version": "1.1.0",
+  "diagrams": [
+    {
+      "ordinal": 0,
+      "scrollPosition": {
+        "x": 0,
+        "y": 0
+      },
+      "nodes": [
+        {
+          "location": {
+            "x": 662.2355001198315,
+            "y": 0
+          },
+          "nodeIndex": "Bedrifter",
+          "nodeLineageTag": "e0b0b571-8b6a-4364-815f-285ce92245c9",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 18.965517241379303,
+            "y": 377.81215290453196
+          },
+          "nodeIndex": "Dato",
+          "nodeLineageTag": "83e25855-928d-4fff-9197-99a882bf699f",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 194.60423239055092,
+            "y": 0
+          },
+          "nodeIndex": "Meldingslogg",
+          "nodeLineageTag": "81212fb7-4d58-4871-b909-a438f62e68ab",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 1104.3734311543144,
+            "y": 178.89276777739792
+          },
+          "nodeIndex": "Oppdateringsmetadata",
+          "nodeLineageTag": "f519fc4f-b55b-4d5c-8daf-720662a3d974",
+          "size": {
+            "height": 296,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 508.39404621867743,
+            "y": 503.78553555479573
+          },
+          "nodeIndex": "Regnskap",
+          "nodeLineageTag": "3f38c0e6-5ab4-4345-8cfc-7af19db05307",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 1085.8906725336246,
+            "y": 542.68587122567374
+          },
+          "nodeIndex": "_Nøkkeltall",
+          "nodeLineageTag": "aa11bb22-cc33-dd44-ee55-ff6677889900",
+          "size": {
+            "height": 296,
+            "width": 234
+          },
+          "zIndex": 0
+        }
+      ],
+      "name": "All tables",
+      "zoomValue": 57.999999999999993,
+      "pinKeyFieldsToTop": false,
+      "showExtraHeaderInfo": false,
+      "hideKeyFieldsWhenCollapsed": false,
+      "tablesLocked": false
+    }
+  ],
+  "selectedDiagram": "All tables",
+  "defaultDiagram": "All tables"
+}

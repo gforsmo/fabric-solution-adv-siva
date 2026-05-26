@@ -1,7 +1,0 @@
-dependencies:
-  - pip:
-      - datafusion==37.1.0
-      - deltalake==0.18.2
-      - duckdb==1.0.0
-      - pyarrow==14.0.2
-      - great-expectations==1.9.2

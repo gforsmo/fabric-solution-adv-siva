@@ -1,0 +1,145 @@
+/// Faktatabell for hendelser fra Brønnøysundregistrene (Samordnet Pressemelding). Inneholder meldinger om stiftelser, endringer, konkurser, avvikling o.l., med kobling til Bedrifter og Dato. Bruker incremental refresh basert på hendelsesdato.
+table Meldingslogg
+	lineageTag: 81212fb7-4d58-4871-b909-a438f62e68ab
+
+	column melding_surrogate_id
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: fd1f6949-f5ef-49ae-9226-5b3b499e55bf
+		summarizeBy: none
+		sourceColumn: melding_surrogate_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column SP-ID
+		dataType: string
+		lineageTag: 4491f46b-d37a-43aa-902d-ca085a8cdec0
+		summarizeBy: none
+		sourceColumn: sp_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column bedrift_surrogate_id
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: 294e9b88-bf2b-4725-a8d3-e4ca4146732a
+		summarizeBy: none
+		sourceColumn: bedrift_surrogate_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column Organisasjonsnummer
+		dataType: string
+		lineageTag: 65f2d623-a09e-4403-a787-26965d3c2e03
+		summarizeBy: none
+		sourceColumn: orgnr
+
+		changedProperty = Name
+
+		annotation SummarizationSetBy = Automatic
+
+	column Selskapsnavn
+		dataType: string
+		lineageTag: 39709217-879b-4de2-8f9e-bc315bfec0df
+		summarizeBy: none
+		sourceColumn: selskapsnavn
+
+		annotation SummarizationSetBy = Automatic
+
+	column Hendelsesdato
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 0a01cad0-5e7f-4ad8-9ce7-bf6bf15d1017
+		summarizeBy: none
+		sourceColumn: hendelsesdato
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column Meldingstype
+		dataType: string
+		lineageTag: b559dd4c-3793-4c21-b7cc-a03dfb8d43eb
+		summarizeBy: none
+		sourceColumn: meldingstype
+
+		annotation SummarizationSetBy = Automatic
+
+	column Meldingsinnhold
+		dataType: string
+		lineageTag: f2cbfd0c-7c33-4be2-99cc-a93496d81bdd
+		summarizeBy: none
+		sourceColumn: meldingsinnhold
+
+		annotation SummarizationSetBy = Automatic
+
+	column URL
+		dataType: string
+		lineageTag: 06bfcf0e-76f6-45cc-9591-16ef6013c422
+		summarizeBy: none
+		sourceColumn: url
+
+		annotation SummarizationSetBy = Automatic
+
+	column created_ts
+		dataType: dateTime
+		isHidden
+		formatString: General Date
+		lineageTag: 1783de05-4f67-4828-b9d5-75c77cd85243
+		summarizeBy: none
+		sourceColumn: created_ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column modified_ts
+		dataType: dateTime
+		isHidden
+		formatString: General Date
+		lineageTag: 45f6b583-5c60-4ff0-bd98-9b6797143643
+		summarizeBy: none
+		sourceColumn: modified_ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column _loading_ts
+		dataType: dateTime
+		isHidden
+		formatString: General Date
+		lineageTag: a46df445-7553-4bc3-88be-77a314cbf787
+		summarizeBy: none
+		sourceColumn: _loading_ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column dato_surrogate_id
+		dataType: int64
+		isHidden
+		formatString: 0
+		lineageTag: 8895cea6-7b9a-4ac7-80a9-4343c0cd22dc
+		summarizeBy: none
+		sourceColumn: dato_surrogate_id
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Meldingslogg = m
+		mode: import
+		source = ```
+				let
+				    Source = Sql.Databases("qdk4d5jdihvellkm2wjw25c6f4-i7usd3he4rhebb5h6nubzv6baa.datawarehouse.fabric.microsoft.com"),
+				    lh_av01_gold = Source{[Name="lh_av01_gold"]}[Data],
+				    siva_fact_melding = lh_av01_gold{[Schema="siva",Item="fact_melding"]}[Data],
+				    #"Filtered Rows" = Table.SelectRows(siva_fact_melding, each 
+				    DateTime.From([hendelsesdato]) >= RangeStart and 
+				    DateTime.From([hendelsesdato]) < RangeEnd)
+				in
+				    #"Filtered Rows"
+				```
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_IsMQueryFoldable = True
+

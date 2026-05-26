@@ -1,0 +1,93 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "69f936bbb7cd97fd4811",
+  "position": {
+    "x": 570.30852994555357,
+    "y": 32.522686025408348,
+    "z": 5,
+    "height": 84.7912885662432,
+    "width": 443.70235934664248
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Meldingslogg"
+                    }
+                  },
+                  "Property": "Organisasjonsnummer"
+                }
+              },
+              "queryRef": "Meldingslogg.Organisasjonsnummer",
+              "nativeQueryRef": "Organisasjonsnummer",
+              "active": true
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Column": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "Meldingslogg"
+                  }
+                },
+                "Property": "Organisasjonsnummer"
+              }
+            },
+            "direction": "Ascending"
+          }
+        ]
+      }
+    },
+    "objects": {
+      "data": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Dropdown'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "general": [
+        {
+          "properties": {}
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true
+  },
+  "filterConfig": {
+    "filters": [
+      {
+        "name": "bbe179e8db352aca7b5c",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Meldingslogg"
+              }
+            },
+            "Property": "Organisasjonsnummer"
+          }
+        },
+        "type": "Categorical"
+      }
+    ]
+  }
+}
