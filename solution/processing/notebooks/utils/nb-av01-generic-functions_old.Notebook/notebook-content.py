@@ -73,6 +73,17 @@ spark.conf.set("spark.sql.avro.datetimeRebaseModeInWrite", "CORRECTED")
 # META   "language_group": "synapse_pyspark"
 # META }
 
+# CELL ********************
+
+%run schema_drift_handler
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
 # MARKDOWN ********************
 
 # ## Constants
@@ -100,7 +111,8 @@ LAYER_GOLD = "gold"
 # Valid layers for validation
 VALID_LAYERS = {LAYER_RAW, LAYER_BRONZE, LAYER_SILVER, LAYER_GOLD}
 
-ACTION_SM_REFRESH = "sm_refresh"
+ACTION_SM_REFRESH  = "sm_refresh"
+ACTION_SM_VALIDATE = "sm_validate"
 
 
 # METADATA ********************
@@ -441,8 +453,10 @@ def log_standard(spark, pipeline_name, notebook_name, status,
     )
     log_df.write.mode("append").option("url", METADATA_DB_URL).mssql("log.pipeline_runs")
 
-    detail = f"{action_type or 'action'}: {source_name or ''}{instruction_detail or ''}"
+    detail = f"{action_type}: {source_name or ''} -> {instruction_detail or ''}"
     print(f"  -> Logged: {detail} - {status} ({rows_processed} rows)")
+  
+
     return rows_processed
 
 
@@ -497,28 +511,9 @@ def log_validation(spark, validation_result, target_table=None,
 # CELL ********************
 
 def les_delta_med_cdf(spark, source_path, source_table, use_cdf):
-    """
-    Leser Delta-data – CDF (kun endringer) eller full last.
-    Bruker samme .mssql()-connector som resten av pipeline.
-
-    Returnerer (df, slettet_df).
-    slettet_df er None ved full last eller ingen slettinger.
-
-    Håndterer tre scenarioer automatisk:
-      1. Ingen tidligere kjøring       → full last
-      2. CDF ikke aktivert for periode → full last (første gang etter aktivering)
-      3. Ingen nye endringer siden sist → tom DataFrame (hopper over)
-
-    Args:
-        spark:        SparkSession
-        source_path:  ABFS-sti til Delta-tabellen
-        source_table: Tabellnavn for logg-oppslag (f.eks. 'brreg/enheter')
-        use_cdf:      Om CDF skal brukes (fra instructions.use_cdf)
-    """
     if not use_cdf:
         return spark.read.format("delta").load(source_path), None
 
-    # Hent siste vellykkede transformasjon via Fabric SQL connector
     siste_kjort = spark.read \
         .option("url", METADATA_DB_URL) \
         .mssql(f"""(
@@ -536,49 +531,49 @@ def les_delta_med_cdf(spark, source_path, source_table, use_cdf):
 
     print(f"  CDF fra: {siste_kjort}")
 
+    CDF_COLS = ["_change_type", "_commit_version", "_commit_timestamp"]
+
     try:
-        df = spark.read.format("delta") \
+        # Les éin gong – split i to
+        cdf_df = spark.read.format("delta") \
             .option("readChangeFeed",    "true") \
             .option("startingTimestamp", str(siste_kjort)) \
             .load(source_path) \
-            .filter(F.col("_change_type").isin("insert", "update_postimage"))
+            .cache()   # ← cache slik at split ikkje les to gonger
 
-        slettet_df = spark.read.format("delta") \
-            .option("readChangeFeed",    "true") \
-            .option("startingTimestamp", str(siste_kjort)) \
-            .load(source_path) \
-            .filter(F.col("_change_type") == "delete")
+        df = cdf_df \
+            .filter(F.col("_change_type").isin("insert", "update_postimage")) \
+            .drop(*CDF_COLS)   # ← fjern CDF-metadata
 
+        slettet_df = cdf_df \
+            .filter(F.col("_change_type") == "delete") \
+            .drop(*CDF_COLS)   # ← fjern CDF-metadata
+
+        antall_endret  = df.count()
         antall_slettet = slettet_df.count()
+
+        print(f"  CDF: {antall_endret} endringar, {antall_slettet} slettar")
+
+        cdf_df.unpersist()   # ← frigjer cache
+
         if antall_slettet == 0:
             slettet_df = None
-        else:
-            print(f"  CDF: {antall_slettet} rader merket for sletting")
 
         return df, slettet_df
 
     except Exception as e:
-        # Ingen nye endringer – tabellen ikke oppdatert siden siste transformasjon
         if "DELTA_TIMESTAMP_GREATER_THAN_COMMIT" in str(e):
-            print("  CDF: ingen nye endringer siden siste transformasjon – hopper over")
-            empty_df = spark.read.format("delta").load(source_path).limit(0)
-            return empty_df, None
+            print("  CDF: ingen nye endringar sidan siste transformasjon")
+            return spark.read.format("delta").load(source_path).limit(0), None
 
-        # CDF ikke tilgjengelig for perioden – første gang etter aktivering
         elif any(x in str(e) for x in [
-            "DELTA_MISSING_CHANGE_DATA",
-            "changeDataFeed",
-            "CDF",
-            "change data feed",
-            "not enabled"
+            "DELTA_MISSING_CHANGE_DATA", "changeDataFeed",
+            "CDF", "change data feed", "not enabled"
         ]):
-            print(f"  CDF ikke tilgjengelig fra {siste_kjort} "
-                  f"– kjører full last (første gang etter CDF-aktivering)")
+            print(f"  CDF ikkje tilgjengeleg frå {siste_kjort} – full last")
             return spark.read.format("delta").load(source_path), None
 
-        # Ukjent feil – kast videre
-        else:
-            raise
+        raise
 
 # METADATA ********************
 
@@ -857,9 +852,225 @@ def validate_and_quarantine(spark, source_df, key_columns, load_params,
 
 # CELL ********************
 
+def load_json_to_delta(spark, source_path, target_path,
+                       column_mapping_id, merge_condition,
+                       merge_type="update_all", merge_columns=None,
+                       key_columns=None, load_params=None,
+                       **ctx):
+    """
+    Last JSON-filer frå Raw-sone til Delta-tabell med kolonne-mapping og MERGE.
+
+    Støttar to JSON-format:
+      1. {"items": [...]}  – frå write_to_landing_zone (YouTube, SharePoint)
+      2. [{...}, {...}]    – JSON-array frå DuckDB full load (BRREG)
+
+    Lastar ALLE ulasta filer i source_path (eldst fyrst).
+    Køyrer schema drift-sjekk på kvar fil før mapping.
+    Arkiverer kvar fil etter vellykka MERGE.
+    Pipeline krasjar ALDRI pga. drift eller logging.
+    """
+    started_at = datetime.now()
+
+    # ── 1. Kolonne-mapping frå metadata ──────────────────────────────────────
+    mapping = load_column_mappings(spark, column_mapping_id)
+    if not mapping:
+        raise ValueError(f"Column mapping '{column_mapping_id}' not found")
+
+    # ── 2. Hent alle filer (ekskluder archive/) ───────────────────────────────
+    all_files = [f for f in notebookutils.fs.ls(source_path)
+                 if not f.isDir
+                 and f.name.endswith((".json", ".jsonl"))]
+
+    if not all_files:
+        print(f"  -> Ingen nye filer i {source_path} – hopper over")
+        try:
+            log_standard(
+                spark              = spark,
+                pipeline_name      = PIPELINE_NAME,
+                notebook_name      = NOTEBOOK_NAME,
+                status             = "success",
+                rows_processed     = 0,
+                action_type        = "loading",
+                source_name        = column_mapping_id,
+                instruction_detail = column_mapping_id,
+                started_at         = started_at,
+            )
+        except Exception as e:
+            print(f"  [log] Logging feilet (ikkje kritisk): {e}")
+        return 0
+
+    all_files = sorted(all_files, key=lambda f: f.modifyTime)
+    print(f"  -> Fant {len(all_files)} fil(er) å laste")
+
+    total_rows = 0
+
+    # Akkumulerer drift på tvers av alle filer i dette kallet
+    all_drift = {"has_drift": False, "high_count": 0,
+                 "medium_count": 0,  "records": []}
+
+    # ── 3. Behandle kvar fil ──────────────────────────────────────────────────
+    for file in all_files:
+        print(f"\n  -> Laster: {file.name}")
+
+        # 3a. Les JSON
+        raw_df = spark.read.option("multiLine", "true").json(file.path)
+
+        # 3b. Schema drift-sjekk
+        #     Samanliknar fila mot column_mapping + required_fields.
+        #     Skriv avvik til log.schema_drift og varslar Teams ved funn.
+        drift_report = check_and_report_drift(
+            spark             = spark,
+            raw_df            = raw_df,
+            mapping           = mapping,
+            load_params       = load_params or {},
+            source_path       = source_path,
+            file_name         = file.name,
+            column_mapping_id = column_mapping_id,
+        )
+        if drift_report["has_drift"]:
+            all_drift["has_drift"]     = True
+            all_drift["high_count"]   += drift_report["high_count"]
+            all_drift["medium_count"] += drift_report["medium_count"]
+            all_drift["records"]      += drift_report["records"]
+
+        # 3c. Suspender fil ved inkompatibelt skjema
+        #     Fila vert IKKJE arkivert – vert forsøkt igjen neste køyring
+        #     etter at column_mapping er oppdatert.
+        if not drift_report["compatible"]:
+            print(f"  ⛔ '{file.name}' suspendert – required felt manglar.")
+            print(f"     Oppdater column_mapping og køyr pipeline på nytt.")
+            continue
+
+        # 3d. Håndter format-varianter
+        if "items" in raw_df.columns:
+            raw_df = raw_df.select(F.explode(F.col("items")).alias("item"))
+            def get_col(source):
+                col = F.col("item")
+                for part in re.split(r'\.(?=[a-zA-Z])', source):
+                    col = col.getField(part)
+                return col
+        else:
+            def get_col(source):
+                parts = re.split(r'\.(?=[a-zA-Z])', source)
+                col   = F.col(f"`{parts[0]}`")
+                for part in parts[1:]:
+                    col = col.getField(part)
+                return col
+
+        # 3e. Bygg SELECT frå kolonne-mapping
+        # Berre felt med include_in_load=True (default) vert lasta inn.
+        # Felt med include_in_load=False er dokumenterte i mapping men droppast.
+        select_exprs = []
+        for col_map in mapping:
+            if not col_map.get("include_in_load", True):
+                continue   # kjent system-felt, dropp stille
+            source   = col_map["source"]
+            target   = col_map["target"]
+            col_type = col_map["type"]
+
+            if source == "_loading_ts":
+                select_exprs.append(F.current_timestamp().alias(target))
+            elif col_type == "timestamp":
+                select_exprs.append(F.to_timestamp(get_col(source)).alias(target))
+            elif col_type == "date":
+                select_exprs.append(F.to_date(get_col(source)).alias(target))
+            elif col_type == "int":
+                select_exprs.append(get_col(source).cast("int").alias(target))
+            elif col_type == "bigint":
+                select_exprs.append(get_col(source).cast("bigint").alias(target))
+            elif col_type == "double":
+                select_exprs.append(
+                    F.when(get_col(source) == "", None)
+                     .otherwise(get_col(source).cast("double"))
+                     .alias(target)
+                )
+            elif col_type == "boolean":
+                select_exprs.append(get_col(source).cast("boolean").alias(target))
+            else:
+                select_exprs.append(
+                    F.when(get_col(source) == "", None)
+                     .otherwise(get_col(source))
+                     .alias(target)
+                )
+
+        source_df = raw_df.select(*select_exprs)
+        print(f"  -> Kolonner mappet: {len(select_exprs)}")
+
+        # 3f. Validering og karantene (eksisterande logikk)
+        if key_columns or (load_params and load_params.get("required_fields")):
+            source_df = validate_and_quarantine(
+                spark             = spark,
+                source_df         = source_df,
+                key_columns       = key_columns or [],
+                load_params       = load_params or {},
+                source_path       = source_path,
+                column_mapping_id = column_mapping_id,
+                target_table      = target_path
+            )
+
+        row_count = source_df.count()
+
+        # 3g. MERGE til Delta-tabell
+        print(f"  -> MERGE til {target_path.split('Tables/')[-1]}...")
+        delta_table   = DeltaTable.forPath(spark, target_path)
+        merge_builder = delta_table.alias("target").merge(
+            source_df.alias("source"), merge_condition
+        )
+
+        if merge_type == "update_all":
+            merge_builder.whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+        elif merge_type == "specific_columns" and merge_columns:
+            update_cols = {c: F.col(f"source.{c}") for c in merge_columns.get("update", [])}
+            insert_cols = {c: F.col(f"source.{c}") for c in merge_columns.get("insert", [])}
+            merge_builder.whenMatchedUpdate(set=update_cols) \
+                         .whenNotMatchedInsert(values=insert_cols).execute()
+
+        print(f"  -> MERGE fullført ({row_count} rader)")
+
+        # 3h. Arkiver fil etter vellykka MERGE
+        try:
+            folder_path  = file.path.replace(file.name, "")
+            archive_path = f"{folder_path}archive/{file.name}"
+            notebookutils.fs.mkdirs(f"{folder_path}archive/")
+            notebookutils.fs.mv(file.path, archive_path, overwrite=True)
+            print(f"  -> Arkivert: {file.name} → archive/")
+        except Exception as e:
+            print(f"  -> ADVARSEL: Arkivering feilet: {e}")
+
+        total_rows += row_count
+
+    # ── 4. Logg til log.pipeline_runs ─────────────────────────────────────────
+    status = "warning" if all_drift["high_count"] > 0 else "success"
+
+    try:
+        log_standard(
+            spark              = spark,
+            pipeline_name      = PIPELINE_NAME,
+            notebook_name      = NOTEBOOK_NAME,
+            status             = status,
+            rows_processed     = total_rows,
+            action_type        = "loading",
+            source_name        = column_mapping_id,
+            instruction_detail = column_mapping_id,
+            started_at         = started_at,
+        )
+    except Exception as e:
+        print(f"  [log] Logging feilet (ikkje kritisk): {e}")
+
+    return total_rows
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
 import re
 
-def load_json_to_delta(spark, source_path, target_path,
+def load_json_to_delta_org(spark, source_path, target_path,
                        column_mapping_id, merge_condition,
                        merge_type="update_all", merge_columns=None,
                        key_columns=None, load_params=None,
@@ -1373,6 +1584,12 @@ def merge_to_delta(spark, source_df, target_path: str, merge_condition: str,
     
     Returns: row count
     """
+    # ── Tom-sjekk – unngår unødvendig Delta-scan ──────────────────────────────
+    # Kritisk for CDF-delete scenario der df er tom og berre slettar skjer
+    if source_df.isEmpty():
+        print("  -> No changes – skipping merge")
+        return 0
+
     delta_table = DeltaTable.forPath(spark, target_path)
     merge_builder = delta_table.alias("target").merge(
         source_df.alias("source"), merge_condition
@@ -1678,6 +1895,11 @@ def load_sm_store(spark):
     df = spark.read.option("url", METADATA_DB_URL).mssql("metadata.sm_store")
     return {row["sm_function_id"]: row["function_name"] for row in df.collect()}
 
+def load_sm_expectation_store(spark):
+    df = spark.read.option("url", METADATA_DB_URL).mssql("metadata.sm_expectation_store")
+    return {row["expectation_id"]: row["check_function"] for row in df.collect()}
+
+
 def refresh_semantic_model(workspace_id, dataset_name,
                            notify_option="NoNotification",
                            refresh_type="automatic",
@@ -1710,8 +1932,6 @@ def refresh_semantic_model(workspace_id, dataset_name,
         )
 
     dataset_id = match[id_column].values[0]
-    print(f"  Dataset ID   : {dataset_id}")
-    print(f"  Refresh type : {refresh_type}")
 
     resp = client.post(
         f"v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes",
@@ -1724,13 +1944,18 @@ def refresh_semantic_model(workspace_id, dataset_name,
         raise Exception(f"Refresh failed HTTP {resp.status_code}: {resp.text}")
     print(f"  Refresh started: HTTP {resp.status_code}")
 
-    start = time.time()
+    start       = time.time()
+    last_status = None              # ← legg til
+
     while time.time() - start < timeout:
         history = client.get(
             f"v1.0/myorg/groups/{workspace_id}/datasets/{dataset_id}/refreshes?$top=1"
         ).json()
         status = history["value"][0]["status"]
-        print(f"  Status: {status}")
+
+        if status != last_status:  # ← berre print ved endring
+            print(f"  Status: {status}")
+            last_status = status
 
         if status == "Completed":
             return "Completed"
@@ -1738,6 +1963,7 @@ def refresh_semantic_model(workspace_id, dataset_name,
             raise Exception(f"Refresh failed: {history['value'][0]}")
 
         time.sleep(20)
+    
 
     raise TimeoutError(f"Refresh timeout after {timeout}s for '{dataset_name}'")
 
@@ -1767,22 +1993,35 @@ def get_last_refresh_status(workspace_id, dataset_name):
 
     return last
 
-def load_column_mappings(spark, mapping_id: str) -> list:
-    """
-    Load column mappings from metadata.column_mappings for a specific mapping_id.
-    Used by load_json_to_delta() to get source->target column mappings.
-    
-    Args:
-        spark: SparkSession
-        mapping_id: The mapping identifier (e.g., 'youtube_channels')
-    
-    Returns: List of dicts with source, target, type keys, ordered by column_order
-    """
-    rows = query_metadata_table(spark, "metadata.column_mappings")
-    filtered = [r for r in rows if r["mapping_id"] == mapping_id]
-    filtered.sort(key=lambda x: x["column_order"])
-    return [{"source": r["source_column"], "target": r["target_column"], "type": r["data_type"]} for r in filtered]
 
+
+def load_column_mappings(spark, mapping_id: str) -> list:
+    df = (
+        spark.read
+             .option("url", METADATA_DB_URL)
+             .mssql(f"""(
+                 SELECT
+                     column_order,
+                     source_column,
+                     target_column,
+                     data_type,
+                     ISNULL(include_in_load, 1) AS include_in_load
+                 FROM metadata.column_mappings
+                 WHERE mapping_id = '{mapping_id}'
+             ) AS q""")
+    )
+    rows = df.collect()
+    if not rows:
+        return []
+    return [
+        {
+            "source":          row["source_column"],
+            "target":          row["target_column"],
+            "type":            row["data_type"],
+            "include_in_load": bool(row["include_in_load"]),
+        }
+        for row in sorted(rows, key=lambda r: r["column_order"])
+    ]
 
 def get_active_instructions(spark, instruction_type: str, layer: str = None) -> list:
     """
@@ -1811,6 +2050,429 @@ def get_active_instructions(spark, instruction_type: str, layer: str = None) -> 
             result = [r for r in result if r.get("target_layer") == layer]
     
     return result
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+def determine_refresh_type(workspace_id, dataset_name, full_refresh_weekday=0):
+    """
+    Determine whether to use full or automatic refresh.
+    Avoids repeated full refreshes on the same day when pipeline runs multiple times.
+    """
+    from datetime import date
+
+    today = date.today()
+
+    # Not the scheduled full refresh day → always automatic
+    if today.weekday() != full_refresh_weekday:
+        return "automatic"
+
+    # Is the full refresh day – check if already done today
+    last = get_last_refresh_status(workspace_id, dataset_name)
+    last_end = last.get("endTime", "")[:10]   # "2026-05-19"
+
+    if last_end == str(today) and last.get("status") == "Completed":
+        print("  Full refresh already done today – using automatic")
+        return "automatic"
+
+    return "full"
+
+
+def run_sm_refresh(spark, instr, workspace_id, gold_base_path,
+                   pipeline_name, workspace_name):
+    """
+    Core SM refresh logic. Called from sm_refresh_executor in notebook.
+    Mirrors run_table_validations() pattern from nb-av01-4-validate.
+
+    Args:
+        spark:          SparkSession
+        instr:          Instruction dict from instructions.semantic_model
+        workspace_id:   SM workspace GUID (resolved from Variable Library)
+        gold_base_path: ABFS path to Gold lakehouse Tables
+        pipeline_name:  For refresh_metadata logging
+        workspace_name: For refresh_metadata logging
+
+    Returns:
+        (row_count, source_name, detail)
+    """
+    from pyspark.sql import Row
+    import json
+
+    dataset_name = instr["dataset_name"]
+    sm_mode      = instr.get("sm_mode", "import")
+    params       = json.loads(instr.get("refresh_params") or "{}")
+
+    refresh_mode         = params.get("refresh_mode",         "scheduled")
+    notify_option        = params.get("notify_option",        "NoNotification")
+    timeout              = params.get("poll_timeout_seconds", 600)
+    full_refresh_weekday = params.get("full_refresh_weekday", 0)
+
+    # Direct Lake - no refresh needed
+    if sm_mode == "directlake":
+        print(f"  Direct Lake - no refresh needed: {dataset_name}")
+        return (1, dataset_name, f"mode={sm_mode}")
+
+    # Determine refresh type from metadata-driven refresh_mode
+    if refresh_mode == "always_full":
+        refresh_type = "full"
+        print("  Mode: always full refresh")
+
+    elif refresh_mode == "always_automatic":
+        refresh_type = "automatic"
+        print("  Mode: always automatic (incremental)")
+
+    elif refresh_mode == "scheduled":
+        if datetime.now().weekday() == full_refresh_weekday:
+            refresh_type = "full"
+            print(f"  Mode: scheduled - full refresh (weekday {full_refresh_weekday})")
+        else:
+            refresh_type = "automatic"
+            print(f"  Mode: scheduled - automatic (full on weekday {full_refresh_weekday})")
+
+    else:
+        raise ValueError(
+            f"Unknown refresh_mode: '{refresh_mode}'. "
+            f"Valid: 'always_full' | 'always_automatic' | 'scheduled'"
+        )
+
+    print(f"  Dataset name  : {dataset_name}")
+    print(f"  SM workspace  : {workspace_name}")
+    print(f"  Refresh type  : {refresh_type}")
+    print(f"  Notify option : {notify_option}")
+
+    # Trigger and poll
+    refresh_semantic_model(
+        workspace_id  = workspace_id,
+        dataset_name  = dataset_name,
+        notify_option = notify_option,
+        refresh_type  = refresh_type,
+        timeout       = timeout
+    )
+
+    # Get actual refresh details from API
+    last = get_last_refresh_status(workspace_id, dataset_name)
+
+    # Write refresh_metadata to Gold
+    spark.createDataFrame([Row(
+        dataset_name   = dataset_name,
+        refresh_type   = last.get("refreshType", refresh_type),
+        refresh_mode   = refresh_mode,
+        status         = last.get("status"),
+        started_at     = last.get("startTime"),
+        completed_at   = last.get("endTime"),
+        request_id     = last.get("requestId"),
+        pipeline_name  = pipeline_name,
+        workspace_name = workspace_name
+    )]).write \
+        .format("delta") \
+        .mode("overwrite") \
+        .save(gold_base_path + "siva/refresh_metadata")
+
+    print(f"  -> refresh_metadata written to Gold")
+
+
+    return (1, dataset_name, f"| mode={refresh_mode}")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+def run_sm_validation(spark, instr, workspace_id, sm_expectation_lookup):
+    """
+    Core SM validation logic. Called from sm_validate_executor in notebook.
+    Mirrors run_table_validations() pattern from nb-av01-4-validate.
+    """
+    import json
+
+    dataset_name = instr["dataset_name"]
+    validations  = instr["validations"]
+
+    print(f"Validating: {dataset_name} ({len(validations)} checks)")
+
+    tables, relationships, _ = load_sm_metadata(workspace_id, dataset_name)
+
+    errors   = []
+    warnings = []
+    passed   = 0
+
+    for v in validations:
+        check_function = sm_expectation_lookup.get(v["expectation_id"])
+        params         = json.loads(v.get("check_params") or "{}")
+        severity       = v.get("severity", "error")
+
+        try:
+            run_check(
+                check_type    = check_function,
+                params        = params,
+                severity      = severity,
+                tables        = tables,
+                relationships = relationships,
+                workspace_id  = workspace_id,
+                dataset_name  = dataset_name
+            )
+            passed += 1
+
+        except ValueError as e:
+            if severity == "warning":
+                print(f"    WARNING: {e}")
+                warnings.append(str(e))
+            else:
+                print(f"    ERROR: {e}")
+                errors.append(str(e))
+
+    print(f"  Results: {passed} passed, {len(warnings)} warnings, {len(errors)} errors")
+
+    if errors:
+        raise ValueError(
+            f"SM validation failed for '{dataset_name}': {errors}"
+        )
+
+    return (passed, dataset_name, dataset_name)
+
+
+def load_sm_metadata(workspace_id, dataset_name):
+    import sempy.fabric as fabric
+
+    tables_df = fabric.evaluate_dax(
+        dataset=dataset_name,
+        workspace=workspace_id,
+        dax_string="EVALUATE INFO.TABLES()"
+    )
+
+    columns_df = fabric.evaluate_dax(
+        dataset=dataset_name,
+        workspace=workspace_id,
+        dax_string="EVALUATE INFO.COLUMNS()"
+    )
+
+    rel_df = fabric.evaluate_dax(
+        dataset=dataset_name,
+        workspace=workspace_id,
+        dax_string="EVALUATE INFO.RELATIONSHIPS()"
+    )
+
+    # Clean column names: "[ID]" -> "ID"
+    tables_df.columns = [c.strip("[]") for c in tables_df.columns]
+    columns_df.columns = [c.strip("[]") for c in columns_df.columns]
+    rel_df.columns = [c.strip("[]") for c in rel_df.columns]
+
+    table_id_to_name = dict(
+        zip(tables_df["ID"], tables_df["Name"])
+    )
+
+    column_id_to_name = dict(
+        zip(columns_df["ID"], columns_df["ExplicitName"])
+    )
+
+    tables = set(tables_df["Name"].dropna().astype(str).tolist())
+
+    relationships = []
+
+    for _, r in rel_df.iterrows():
+        from_table = table_id_to_name.get(r["FromTableID"])
+        to_table = table_id_to_name.get(r["ToTableID"])
+
+        from_col = column_id_to_name.get(r["FromColumnID"])
+        to_col = column_id_to_name.get(r["ToColumnID"])
+
+        if from_table and to_table:
+            relationships.append(
+                {
+                    "from_table": from_table,
+                    "to_table": to_table,
+                    "from_column": from_col,
+                    "to_column": to_col,
+                }
+            )
+
+    print(f"  Tables found  : {sorted(tables)}")
+    print("  Relationships :")
+    for rel in relationships:
+        print(
+            f"    {rel['from_table']}.{rel['from_column']} "
+            f"-> {rel['to_table']}.{rel['to_column']}"
+        )
+
+    return tables, relationships, dataset_name
+
+
+def run_check(check_type, params, severity, tables,
+              relationships, workspace_id, dataset_name):
+    """Run a single SM validation check."""
+    import sempy.fabric as fabric
+
+    if check_type == "check_table_exists":
+        table_name = params["table_name"]
+        if table_name not in tables:
+            raise ValueError(f"Table '{table_name}' not found in semantic model")
+        print(f"    OK table_exists: {table_name}")
+        return 1
+
+    elif check_type == "check_relationship":
+        from_table = params["from_table"]
+        to_table   = params["to_table"]
+
+        if not any(
+            r["from_table"] == from_table and r["to_table"] == to_table
+            for r in relationships
+        ):
+            raise ValueError(
+                f"Relationship '{from_table}' -> '{to_table}' not found"
+            )
+
+        print(f"    OK relationship: {from_table} -> {to_table}")
+        return 1
+
+    elif check_type == "check_row_count":
+        table_name = params["table_name"]
+        min_rows   = params.get("min_rows", 1)
+
+        dax_table_name = f"'{table_name}'"
+
+        result = fabric.evaluate_dax(
+            dataset=dataset_name,
+            workspace=workspace_id,
+            dax_string=f"""
+    EVALUATE
+    ROW("Count", COUNTROWS({dax_table_name}))
+    """
+        )
+
+        row_count = int(result["[Count]"].values[0])
+
+        if row_count < min_rows:
+            raise ValueError(
+                f"Table '{table_name}' has {row_count:,} rows, "
+                f"expected minimum {min_rows:,}"
+            )
+
+        print(f"    OK row_count: {table_name} ({row_count:,} >= {min_rows:,})")
+        return row_count
+    else:
+        raise ValueError(f"Unknown check_type: '{check_type}'")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
+
+# ## Maintenance function
+
+# CELL ********************
+
+from datetime import datetime, timezone
+
+
+def should_run(last_run_at, interval_hours: int) -> bool:
+    if last_run_at is None:
+        return True
+
+    now = datetime.now(timezone.utc)
+
+    if last_run_at.tzinfo is None:
+        last_run_at = last_run_at.replace(tzinfo=timezone.utc)
+
+    elapsed_hours = (now - last_run_at).total_seconds() / 3600
+
+    return elapsed_hours >= interval_hours
+
+
+def run_table_maintenance_from_settings(
+    spark,
+    settings_table: str,
+    environment: str,
+    allow_vacuum_zero_hours: bool = False
+):
+    print("=== Delta maintenance from settings ===")
+    print(f"Settings table: {settings_table}")
+    print(f"Environment: {environment}")
+
+    rows = spark.sql(f"""
+        SELECT *
+        FROM {settings_table}
+        WHERE is_active = true
+    """).collect()
+
+    print(f"Fant {len(rows)} aktive maintenance settings")
+
+    for row in rows:
+        catalog_name = row["catalog_name"]
+        lakehouse_name = row["lakehouse_name"]
+        schema_name = row["schema_name"]
+        table_name = row["table_name"]
+
+        full_table_name = (
+            f"`{catalog_name}`.`{lakehouse_name}`."
+            f"`{schema_name}`.`{table_name}`"
+        )
+
+        print("")
+        print(f"Behandler: {full_table_name}")
+
+        # -----------------------------
+        # OPTIMIZE
+        # -----------------------------
+        if row["optimize_enabled"]:
+            if should_run(row["last_optimize_at"], row["optimize_interval_hours"]):
+                try:
+                    spark.sql(f"OPTIMIZE {full_table_name}")
+                    print("  ✅ OPTIMIZE kjørt")
+
+                    spark.sql(f"""
+                        UPDATE {settings_table}
+                        SET last_optimize_at = current_timestamp()
+                        WHERE setting_id = '{row["setting_id"]}'
+                    """)
+
+                except Exception as e:
+                    print(f"  ⚠️ OPTIMIZE feilet: {e}")
+            else:
+                print("  OPTIMIZE hoppet over - ikke tid ennå")
+
+        # -----------------------------
+        # VACUUM
+        # -----------------------------
+        if row["vacuum_enabled"]:
+            retention_hours = row["vacuum_retention_hours"]
+
+            if retention_hours == 0 and not allow_vacuum_zero_hours:
+                print("  ⚠️ VACUUM 0 HOURS blokkert")
+                continue
+
+            if should_run(row["last_vacuum_at"], row["vacuum_interval_hours"]):
+                try:
+                    spark.sql(
+                        f"VACUUM {full_table_name} "
+                        f"RETAIN {retention_hours} HOURS"
+                    )
+
+                    print(f"  ✅ VACUUM kjørt, retain {retention_hours} timer")
+
+                    spark.sql(f"""
+                        UPDATE {settings_table}
+                        SET last_vacuum_at = current_timestamp()
+                        WHERE setting_id = '{row["setting_id"]}'
+                    """)
+
+                except Exception as e:
+                    print(f"  ⚠️ VACUUM feilet: {e}")
+            else:
+                print("  VACUUM hoppet over - ikke tid ennå")
 
 # METADATA ********************
 

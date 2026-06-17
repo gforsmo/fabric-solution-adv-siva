@@ -25,10 +25,47 @@
 
 # PARAMETERS CELL ********************
 
-# Parameters - passed via REST API execution
-spn_tenant_id = ""
-spn_client_id = ""
+# ── Køyrekontekst ─────────────────────────────────────────────
+run_context = "notebook"
+
+# ── Testmodus ─────────────────────────────────────────────────
+TEST_MODE = False
+
+# ── SPN-credentials ───────────────────────────────────────────
+# Sendast inn frå Fabric Pipeline ved orkestrert køyring.
+# Viss tomme → hentast automatisk frå Key Vault i celle 3.
+spn_tenant_id     = ""
+spn_client_id     = ""
 spn_client_secret = ""
+
+print(f"  run_context : {run_context}")
+print(f"  TEST_MODE   : {TEST_MODE}")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+KEYVAULT = "https://av01-akv-restapis-keys.vault.azure.net/"
+
+def _kv(secret_name):
+    return mssparkutils.credentials.getSecret(KEYVAULT, secret_name)
+
+# Bruk parameter-verdi viss sett, elles hent frå Key Vault
+spn_tenant_id     = spn_tenant_id     or _kv("spn-tenant-id")
+spn_client_id     = spn_client_id     or _kv("spn-client-id")
+spn_client_secret = spn_client_secret or _kv("spn-client-secret")
+
+# Valider
+if not all([spn_tenant_id, spn_client_id, spn_client_secret]):
+    raise ValueError("KRITISK: SPN-credentials ikkje tilgjengeleg – avbryt")
+
+kilde = "pipeline-parameter" if run_context.lower() not in ["notebook","manual","interactive"] else "key-vault"
+print(f"  Credentials: lasta frå {kilde}")
 
 # METADATA ********************
 
@@ -40,17 +77,6 @@ spn_client_secret = ""
 # MARKDOWN ********************
 
 # ## Configuration
-
-# CELL ********************
-
-TEST_MODE = False
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
 
 # CELL ********************
 
@@ -136,17 +162,6 @@ set_metadata_db_url(
 # META   "language_group": "synapse_pyspark"
 # META }
 
-# CELL ********************
-
-print(METADATA_DB_URL)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
 # MARKDOWN ********************
 
 # ## Load Metadata
@@ -214,8 +229,6 @@ NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-0-ingest-api")
 
 # CELL ********************
 
-
-
 # Shared context for cross-instruction dependencies
 ingestion_context = {"raw_base_path": RAW_BASE_PATH}
 
@@ -278,17 +291,7 @@ print(f"=== INGEST FULLFØRT ===")
 print(f"  Status    : {INGEST_STATUS}")
 print(f"  Tidspunkt : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-notebookutils.notebook.exit(INGEST_STATUS)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
+#notebookutils.notebook.exit(INGEST_STATUS)
 
 # METADATA ********************
 
@@ -331,6 +334,22 @@ print("Ferdig")
 
 '''
 
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+'''update_watermark(
+    spark,
+    source_id     = 2,
+    endpoint_path = "/oppdateringer/enheter",
+    watermark_id  = 24502909   # ← sett til ønsket startpunkt
+)'''
 
 # METADATA ********************
 

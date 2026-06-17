@@ -108,20 +108,29 @@ first_instr   = transform_instructions[0] if transform_instructions else {}
 PIPELINE_NAME = first_instr.get("pipeline_name", "data_pipeline")
 NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-2-clean")
 
-
 def clean_executor(spark, instr):
     """Execute a single clean/transform instruction. Returns (row_count, source_name, detail)."""
     source_path = BRONZE_BASE_PATH + instr["source_table"]
     dest_path   = SILVER_BASE_PATH + instr["dest_table"]
     use_cdf     = bool(instr.get("use_cdf", False))
 
+    # ── Sjølvhelande: tving full load dersom Silver er tom ────────────────────
+    if use_cdf:
+        try:
+            if spark.read.format("delta").load(dest_path).isEmpty():
+                print("  Silver is empty – forcing full load")
+                use_cdf = False
+        except Exception:
+            print("  Silver does not exist yet – forcing full load")
+            use_cdf = False
+
     print(f"Transforming: {instr['source_table']} -> {instr['dest_table']}"
           f" [{'CDF' if use_cdf else 'full'}]")
 
-    # ── Les data ──────────────────────────────────────────────────────────────
-    df, slettet_df = les_delta_med_cdf(spark, source_path, instr["source_table"], use_cdf)
+    df, slettet_df = les_delta_med_cdf(
+        spark, source_path, instr["source_table"], use_cdf
+    )
 
-    # ── Transformer ───────────────────────────────────────────────────────────
     pipeline  = json.loads(instr["transform_pipeline"])
     params    = json.loads(instr["transform_params"]) if instr.get("transform_params") else {}
 
@@ -136,31 +145,39 @@ def clean_executor(spark, instr):
     merge_columns = json.loads(instr["merge_columns"]) if instr.get("merge_columns") else None
 
     if not instr.get("merge_type"):
-        raise ValueError(
-            f"merge_type is required in transformation instruction for {instr['dest_table']}"
-        )
+        raise ValueError(f"merge_type is required for {instr['dest_table']}")
 
-    # ── Merge til Silver ──────────────────────────────────────────────────────
     row_count = merge_to_delta(
-        spark          = spark,
-        source_df      = result_df,
-        target_path    = dest_path,
-        merge_condition= instr["merge_condition"],
-        merge_type     = instr["merge_type"],
-        merge_columns  = merge_columns
+        spark           = spark,
+        source_df       = result_df,
+        target_path     = dest_path,
+        merge_condition = instr["merge_condition"],
+        merge_type      = instr["merge_type"],
+        merge_columns   = merge_columns
     )
 
-    # ── Håndter slettinger ────────────────────────────────────────────────────
     if slettet_df is not None:
-        from delta.tables import DeltaTable
+        key_cols = [
+            part.split("source.")[1].strip()
+            for part in instr["merge_condition"].split("AND")
+            if "source." in part
+        ]
+        slettet_keys = slettet_df.select(key_cols)
+        delete_count = slettet_keys.count()
+
         DeltaTable.forPath(spark, dest_path) \
             .alias("target") \
-            .merge(slettet_df.alias("source"), instr["merge_condition"]) \
+            .merge(slettet_keys.alias("source"), instr["merge_condition"]) \
             .whenMatchedDelete() \
             .execute()
-        print(f"  -> Slettinger utført i {instr['dest_table']}")
+        print(f"  -> {delete_count} rows deleted from {instr['dest_table']}")
 
-    print(f"  -> Merged to {instr['dest_table']}")
+    # ── Print berre om noko faktisk skjedde ───────────────────────────────────
+    if row_count > 0 or slettet_df is not None:
+        print(f"  -> Merged to {instr['dest_table']}")
+    else:
+        print(f"  -> Skipped {instr['dest_table']} (no changes)")
+
     return (row_count, instr["source_table"], instr["dest_table"])
 
 

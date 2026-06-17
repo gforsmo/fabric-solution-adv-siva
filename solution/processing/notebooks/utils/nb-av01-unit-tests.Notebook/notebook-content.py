@@ -714,6 +714,476 @@ def test_build_expectation_no_column():
 
 # MARKDOWN ********************
 
+# ## Schema Drift Tests
+# Tests for Great Expectations integration - building expectations from metadata.
+
+# CELL ********************
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CELLE A  –  Schema Drift Tests
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+## Schema Drift Tests
+# Tests for schema drift detection logic in nb-av01-schema-drift.
+# Covers all four drift scenarios without writing to SQL or sending Teams alerts.
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+## Schema Drift Tests
+# Tests for schema drift detection logic in nb-av01-schema-drift.
+# log_drift og notify_teams_drift blir patchet til no-ops slik at
+# testane ikkje krev SQL-tilkobling eller Teams-webhook.
+
+from contextlib import contextmanager
+
+@contextmanager
+def _mock_drift_dependencies():
+    """
+    Patcher log_drift og notify_teams_drift til no-ops for testen sin varigheit.
+    Gjenopprettar originalar i finally – trygt sjølv om testen krasjar.
+    """
+    _orig_log    = globals()["log_drift"]
+    _orig_notify = globals()["notify_teams_drift"]
+
+    globals()["log_drift"]          = lambda *a, **kw: 0
+    globals()["notify_teams_drift"] = lambda *a, **kw: None
+
+    try:
+        yield
+    finally:
+        globals()["log_drift"]          = _orig_log
+        globals()["notify_teams_drift"] = _orig_notify
+
+
+def test_drift_no_drift():
+    """Ingen drift når fil matcher mapping."""
+    mapping = [
+        {"source": "video_id",             "target": "video_id",    "type": "string"},
+        {"source": "snippet.title",        "target": "video_title", "type": "string"},
+        {"source": "statistics.viewCount", "target": "view_count",  "type": "string"},
+        {"source": "_loading_ts",          "target": "loading_ts",  "type": "timestamp"},
+    ]
+    load_params = {"required_fields": "video_id,snippet,statistics"}
+    data = [Row(video_id="abc", snippet=Row(title="Test"), statistics=Row(viewCount="100"))]
+
+    with _mock_drift_dependencies():
+        result = detect_schema_drift(
+            spark=spark, raw_df=create_test_df(data), mapping=mapping,
+            load_params=load_params,
+            source_path="Files/test/", file_name="test.json",
+            column_mapping_id="test_mapping",
+        )
+
+    assert not result["has_drift"],   "Skal ikkje ha drift"
+    assert result["high_count"] == 0, "Ingen HIGH-avvik"
+    assert result["compatible"],      "Skal vere kompatibel"
+
+
+def test_drift_missing_required_column():
+    """Manglande required-felt gir HIGH-avvik og incompatible."""
+    mapping = [
+        {"source": "video_id",   "target": "video_id",   "type": "string"},
+        {"source": "statistics", "target": "statistics", "type": "string"},
+    ]
+    load_params = {"required_fields": "video_id,statistics"}
+    data = [Row(video_id="abc")]  # statistics manglar
+
+    with _mock_drift_dependencies():
+        result = detect_schema_drift(
+            spark=spark, raw_df=create_test_df(data), mapping=mapping,
+            load_params=load_params,
+            source_path="Files/test/", file_name="test.json",
+            column_mapping_id="test_mapping",
+        )
+
+    assert result["has_drift"],                                  "Skal ha drift"
+    assert result["high_count"] >= 1,                            "Skal ha HIGH-avvik"
+    assert not result["compatible"],                             "Skal vere inkompatibel"
+    assert "MISSING_COLUMN" in [r["drift_type"] for r in result["records"]]
+
+
+def test_drift_missing_optional_column():
+    """Manglande valgfritt felt gir MEDIUM-avvik men er kompatibel."""
+    mapping = [
+        {"source": "video_id",    "target": "video_id",    "type": "string"},
+        {"source": "description", "target": "description", "type": "string"},
+    ]
+    load_params = {"required_fields": "video_id"}  # description ikkje required
+    data = [Row(video_id="abc")]
+
+    with _mock_drift_dependencies():
+        result = detect_schema_drift(
+            spark=spark, raw_df=create_test_df(data), mapping=mapping,
+            load_params=load_params,
+            source_path="Files/test/", file_name="test.json",
+            column_mapping_id="test_mapping",
+        )
+
+    assert result["has_drift"],         "Skal ha drift"
+    assert result["high_count"] == 0,   "Ingen HIGH for valgfritt felt"
+    assert result["medium_count"] >= 1, "Skal ha MEDIUM-avvik"
+    assert result["compatible"],        "Skal vere kompatibel"
+
+
+def test_drift_new_column():
+    """Ukjent nytt felt i filen gir NEW_COLUMN MEDIUM-avvik."""
+    mapping = [{"source": "video_id", "target": "video_id", "type": "string"}]
+    load_params = {}
+    data = [Row(video_id="abc", newField="ukjent")]
+
+    with _mock_drift_dependencies():
+        result = detect_schema_drift(
+            spark=spark, raw_df=create_test_df(data), mapping=mapping,
+            load_params=load_params,
+            source_path="Files/test/", file_name="test.json",
+            column_mapping_id="test_mapping",
+        )
+
+    assert result["has_drift"],                                "Skal ha drift"
+    assert "NEW_COLUMN" in [r["drift_type"] for r in result["records"]]
+    assert result["high_count"] == 0,                          "NEW_COLUMN er MEDIUM"
+
+
+def test_drift_possible_rename():
+    """Fuzzy rename-kandidat blir oppdaga."""
+    mapping = [
+        {"source": "video_id", "target": "video_id", "type": "string"},
+        {"source": "snippet",  "target": "snippet",  "type": "string"},
+    ]
+    load_params = {"required_fields": "video_id,snippet"}
+    # snippet borte, video_snippet nytt → fuzzy match over terskel
+    data = [Row(video_id="abc", video_snippet=Row(title="Test"))]
+
+    with _mock_drift_dependencies():
+        result = detect_schema_drift(
+            spark=spark, raw_df=create_test_df(data), mapping=mapping,
+            load_params=load_params,
+            source_path="Files/test/", file_name="test.json",
+            column_mapping_id="test_mapping",
+        )
+
+    assert result["has_drift"],  "Skal ha drift"
+    rename_records = [r for r in result["records"] if r["drift_type"] == "POSSIBLE_RENAME"]
+    assert rename_records,                                     "Skal finne POSSIBLE_RENAME"
+    assert rename_records[0]["expected_value"] == "snippet",   "Gamalt namn"
+    assert rename_records[0]["actual_value"]   == "video_snippet", "Nytt namn"
+
+
+def test_drift_type_mismatch():
+    """Numerisk felt forventa, string i data, gir TYPE_MISMATCH HIGH."""
+    mapping = [
+        {"source": "video_id",   "target": "video_id",   "type": "string"},
+        {"source": "view_count", "target": "view_count", "type": "bigint"},
+    ]
+    load_params = {}
+    # Spark infererer StringType for tekstverdi → forventa bigint → mismatch
+    data = [Row(video_id="abc", view_count="ikkje-eit-tal")]
+
+    with _mock_drift_dependencies():
+        result = detect_schema_drift(
+            spark=spark, raw_df=create_test_df(data), mapping=mapping,
+            load_params=load_params,
+            source_path="Files/test/", file_name="test.json",
+            column_mapping_id="test_mapping",
+        )
+
+    assert result["has_drift"],  "Skal ha drift"
+    assert "TYPE_MISMATCH" in [r["drift_type"] for r in result["records"]]
+    assert result["high_count"] >= 1, "TYPE_MISMATCH er HIGH"
+
+
+def test_drift_suggested_action_present():
+    """Alle avvik har utfylt suggested_action."""
+    mapping = [
+        {"source": "video_id",    "target": "video_id", "type": "string"},
+        {"source": "missing_col", "target": "missing",  "type": "string"},
+    ]
+    load_params = {"required_fields": "video_id,missing_col"}
+    data = [Row(video_id="abc")]
+
+    with _mock_drift_dependencies():
+        result = detect_schema_drift(
+            spark=spark, raw_df=create_test_df(data), mapping=mapping,
+            load_params=load_params,
+            source_path="Files/test/", file_name="test.json",
+            column_mapping_id="test_mapping",
+        )
+
+    for r in result["records"]:
+        assert r.get("suggested_action"), \
+            f"suggested_action manglar for {r['drift_type']} / {r['column_name']}"
+        assert len(r["suggested_action"]) > 10, \
+            "suggested_action bør vere meiningsfull tekst"
+
+
+def test_drift_loading_ts_ignored():
+    """_loading_ts i mapping skal ikkje gi falsk MISSING_COLUMN."""
+    mapping = [
+        {"source": "video_id",    "target": "video_id",   "type": "string"},
+        {"source": "_loading_ts", "target": "loading_ts", "type": "timestamp"},
+    ]
+    load_params = {}
+    data = [Row(video_id="abc")]
+
+    with _mock_drift_dependencies():
+        result = detect_schema_drift(
+            spark=spark, raw_df=create_test_df(data), mapping=mapping,
+            load_params=load_params,
+            source_path="Files/test/", file_name="test.json",
+            column_mapping_id="test_mapping",
+        )
+
+    missing_loading_ts = [
+        r for r in result["records"]
+        if r["drift_type"] == "MISSING_COLUMN" and r["column_name"] == "_loading_ts"
+    ]
+    assert not missing_loading_ts, "_loading_ts skal ikkje gi MISSING_COLUMN"
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CELLE A  –  Schema Drift Tests
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+## Schema Drift Tests
+# Tests for schema drift detection logic in nb-av01-schema-drift.
+# Covers all four drift scenarios without writing to SQL or sending Teams alerts.
+''' 
+def test_drift_no_drift():
+    """Test at ingen drift blir rapportert når fil matcher mapping."""
+    mapping = [
+        {"source": "video_id",             "target": "video_id",        "type": "string"},
+        {"source": "snippet.title",        "target": "video_title",     "type": "string"},
+        {"source": "statistics.viewCount", "target": "view_count",      "type": "string"},
+        {"source": "_loading_ts",          "target": "loading_ts",      "type": "timestamp"},
+    ]
+    load_params = {"required_fields": "video_id,snippet,statistics"}
+ 
+    data = [Row(video_id="abc", snippet=Row(title="Test"), statistics=Row(viewCount="100"))]
+    df   = create_test_df(data)
+ 
+    result = detect_schema_drift(
+        spark=spark, raw_df=df, mapping=mapping,
+        load_params=load_params,
+        source_path="Files/test/", file_name="test.json",
+        column_mapping_id="test_mapping",
+    )
+ 
+    assert not result["has_drift"],   "Skal ikkje ha drift når skjema er OK"
+    assert result["high_count"] == 0, "Ingen HIGH-avvik"
+    assert result["compatible"],      "Skal vere kompatibel"
+ 
+ 
+def test_drift_missing_required_column():
+    """Test at manglande required-felt gir HIGH-avvik og incompatible."""
+    mapping = [
+        {"source": "video_id",   "target": "video_id",   "type": "string"},
+        {"source": "statistics", "target": "statistics",  "type": "string"},
+    ]
+    load_params = {"required_fields": "video_id,statistics"}
+ 
+    # statistics manglar
+    data = [Row(video_id="abc")]
+    df   = create_test_df(data)
+ 
+    result = detect_schema_drift(
+        spark=spark, raw_df=df, mapping=mapping,
+        load_params=load_params,
+        source_path="Files/test/", file_name="test.json",
+        column_mapping_id="test_mapping",
+    )
+ 
+    assert result["has_drift"],              "Skal ha drift"
+    assert result["high_count"] >= 1,        "Skal ha HIGH-avvik for required felt"
+    assert not result["compatible"],          "Skal vere inkompatibel"
+ 
+    drift_types = [r["drift_type"] for r in result["records"]]
+    assert "MISSING_COLUMN" in drift_types,  "Skal rapportere MISSING_COLUMN"
+ 
+ 
+def test_drift_missing_optional_column():
+    """Test at manglande valgfritt felt gir MEDIUM-avvik men er kompatibel."""
+    mapping = [
+        {"source": "video_id",    "target": "video_id",    "type": "string"},
+        {"source": "description", "target": "description", "type": "string"},
+    ]
+    load_params = {"required_fields": "video_id"}  # description er ikkje required
+ 
+    data = [Row(video_id="abc")]
+    df   = create_test_df(data)
+ 
+    result = detect_schema_drift(
+        spark=spark, raw_df=df, mapping=mapping,
+        load_params=load_params,
+        source_path="Files/test/", file_name="test.json",
+        column_mapping_id="test_mapping",
+    )
+ 
+    assert result["has_drift"],               "Skal ha drift"
+    assert result["high_count"] == 0,         "Ingen HIGH-avvik for valgfritt felt"
+    assert result["medium_count"] >= 1,       "Skal ha MEDIUM-avvik"
+    assert result["compatible"],              "Skal vere kompatibel (ikkje required)"
+ 
+ 
+def test_drift_new_column():
+    """Test at ukjent nytt felt i filen gir MEDIUM-avvik."""
+    mapping = [
+        {"source": "video_id", "target": "video_id", "type": "string"},
+    ]
+    load_params = {}
+ 
+    # newField finst ikkje i mapping
+    data = [Row(video_id="abc", newField="ukjent")]
+    df   = create_test_df(data)
+ 
+    result = detect_schema_drift(
+        spark=spark, raw_df=df, mapping=mapping,
+        load_params=load_params,
+        source_path="Files/test/", file_name="test.json",
+        column_mapping_id="test_mapping",
+    )
+ 
+    assert result["has_drift"],                "Skal ha drift"
+    drift_types = [r["drift_type"] for r in result["records"]]
+    assert "NEW_COLUMN" in drift_types,        "Skal rapportere NEW_COLUMN"
+    assert result["high_count"] == 0,          "Nytt felt er MEDIUM, ikkje HIGH"
+ 
+ 
+def test_drift_possible_rename():
+    """Test at fuzzy rename-kandidat blir oppdaga."""
+    mapping = [
+        {"source": "video_id", "target": "video_id",  "type": "string"},
+        {"source": "snippet",  "target": "snippet",   "type": "string"},
+    ]
+    load_params = {"required_fields": "video_id,snippet"}
+ 
+    # snippet er borte, video_snippet er nytt → fuzzy match
+    data = [Row(video_id="abc", video_snippet=Row(title="Test"))]
+    df   = create_test_df(data)
+ 
+    result = detect_schema_drift(
+        spark=spark, raw_df=df, mapping=mapping,
+        load_params=load_params,
+        source_path="Files/test/", file_name="test.json",
+        column_mapping_id="test_mapping",
+    )
+ 
+    assert result["has_drift"],                   "Skal ha drift"
+    drift_types = [r["drift_type"] for r in result["records"]]
+    assert "POSSIBLE_RENAME" in drift_types,      "Skal oppdage POSSIBLE_RENAME"
+ 
+    rename_record = next(r for r in result["records"]
+                         if r["drift_type"] == "POSSIBLE_RENAME")
+    assert rename_record["expected_value"] == "snippet",       "Gamalt namn"
+    assert rename_record["actual_value"]   == "video_snippet", "Nytt namn"
+ 
+ 
+def test_drift_type_mismatch():
+    """Test at numerisk felt med string-type gir TYPE_MISMATCH."""
+    mapping = [
+        {"source": "video_id",   "target": "video_id",   "type": "string"},
+        {"source": "view_count", "target": "view_count", "type": "bigint"},
+    ]
+    load_params = {}
+ 
+    # Spark infererer bigint for heiltals-verdiar — forventar string i mapping
+    # For å tvinge TYPE_MISMATCH: mapping seier bigint, men vi set expected
+    # til string og actual til bigint i testen under
+    # Enklare: la mapping seie "bigint" og gi string-data (Spark → string)
+    data = [Row(video_id="abc", view_count="ikkje-eit-tal")]
+    df   = create_test_df(data)
+ 
+    # Spark infererer StringType for "ikkje-eit-tal" → forventar bigint → mismatch
+    result = detect_schema_drift(
+        spark=spark, raw_df=df, mapping=mapping,
+        load_params=load_params,
+        source_path="Files/test/", file_name="test.json",
+        column_mapping_id="test_mapping",
+    )
+ 
+    assert result["has_drift"],                  "Skal ha drift"
+    drift_types = [r["drift_type"] for r in result["records"]]
+    assert "TYPE_MISMATCH" in drift_types,       "Skal rapportere TYPE_MISMATCH"
+    assert result["high_count"] >= 1,            "TYPE_MISMATCH er HIGH"
+ 
+ 
+def test_drift_suggested_action_present():
+    """Test at alle avvik har utfylt suggested_action."""
+    mapping = [
+        {"source": "video_id",   "target": "video_id",  "type": "string"},
+        {"source": "missing_col","target": "missing",   "type": "string"},
+    ]
+    load_params = {"required_fields": "video_id,missing_col"}
+ 
+    data = [Row(video_id="abc")]
+    df   = create_test_df(data)
+ 
+    result = detect_schema_drift(
+        spark=spark, raw_df=df, mapping=mapping,
+        load_params=load_params,
+        source_path="Files/test/", file_name="test.json",
+        column_mapping_id="test_mapping",
+    )
+ 
+    for r in result["records"]:
+        assert r.get("suggested_action"), \
+            f"suggested_action manglar for {r['drift_type']} / {r['column_name']}"
+        assert len(r["suggested_action"]) > 10, \
+            "suggested_action bør vere ein meiningsfull tekst"
+ 
+ 
+def test_drift_loading_ts_ignored():
+    """Test at _loading_ts i mapping ikkje gir falsk MISSING_COLUMN."""
+    mapping = [
+        {"source": "video_id",    "target": "video_id",   "type": "string"},
+        {"source": "_loading_ts", "target": "loading_ts", "type": "timestamp"},
+    ]
+    load_params = {}
+ 
+    data = [Row(video_id="abc")]
+    df   = create_test_df(data)
+ 
+    result = detect_schema_drift(
+        spark=spark, raw_df=df, mapping=mapping,
+        load_params=load_params,
+        source_path="Files/test/", file_name="test.json",
+        column_mapping_id="test_mapping",
+    )
+ 
+    # _loading_ts er ein generert kolonne, ikkje i kjeldefila
+    # skal ikkje trigge MISSING_COLUMN
+    missing = [r for r in result["records"]
+               if r["drift_type"] == "MISSING_COLUMN"
+               and r["column_name"] == "_loading_ts"]
+    assert not missing, "_loading_ts skal ikkje gi MISSING_COLUMN"
+ 
+ 
+'''
+ 
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
+
 # ## Run All Tests
 
 # CELL ********************
@@ -778,6 +1248,16 @@ def run_all_tests():
             test_build_expectation_with_value_set,
             test_build_expectation_with_range,
             test_build_expectation_no_column,
+        ],
+        "Schema Drift": [          # ← legg til her
+            test_drift_no_drift,
+            test_drift_missing_required_column,
+            test_drift_missing_optional_column,
+            test_drift_new_column,
+            test_drift_possible_rename,
+            test_drift_type_mismatch,
+            test_drift_suggested_action_present,
+            test_drift_loading_ts_ignored,
         ],
     }
 

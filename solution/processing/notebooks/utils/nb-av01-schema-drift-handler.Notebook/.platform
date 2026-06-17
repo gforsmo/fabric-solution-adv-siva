@@ -2,11 +2,11 @@
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
   "metadata": {
     "type": "Notebook",
-    "displayName": "nb-av01-5-sm-refresh",
+    "displayName": "nb-av01-schema-drift-handler",
     "description": "New notebook"
   },
   "config": {
     "version": "2.0",
-    "logicalId": "142b3ef6-3293-be3e-440e-17e59dcbab3d"
+    "logicalId": "4bbf7bd1-7105-b6c8-402a-2a0160b12717"
   }
 }

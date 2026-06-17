@@ -166,6 +166,8 @@ def load_executor(spark, instr):
     load_params = json.loads(instr["load_params"]) if instr.get("load_params") else {}
     merge_columns = json.loads(instr["merge_columns"]) if instr.get("merge_columns") else None
 
+    print(merge_columns)
+
     if not instr.get("merge_type"):
         raise ValueError(f"merge_type is required in loading instruction for {instr['target_table']}")
 
@@ -250,7 +252,178 @@ print(f"  Status   : {LOAD_STATUS}")
 print(f"  Kritiske : {LOAD_CRITICAL_ERRORS}")
 print(f"  Advarsler: {LOAD_WARNING_ERRORS}")
 
-notebookutils.notebook.exit(LOAD_STATUS)
+#notebookutils.notebook.exit(LOAD_STATUS)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+mapping = load_column_mappings(spark, "youtube_channels")
+for m in mapping:
+    print(m)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+import inspect
+print(inspect.getsource(_build_expected_schema))
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# =============================================================================
+#  SCHEMA DRIFT – MANUELL TESTCELLE
+#  Kjøres KUN når RUN_DRIFT_TEST = True  (sett manuelt)
+#  Skriver IKKE til log.schema_drift – bruker mock-funksjonar
+#  Sender IKKE Teams-melding – printes til konsoll
+#
+#  NB: Sidan schema_drift_handler er henta via %run (ikkje import),
+#  patcher vi globals() direkte i staden for sdh.funksjon
+# =============================================================================
+
+RUN_DRIFT_TEST = True   # ← sett True for å kjøre testen manuelt
+
+if RUN_DRIFT_TEST:
+
+    print("=" * 65)
+    print("  SCHEMA DRIFT SIMULERINGSTEST  –  ikke produksjonsdata")
+    print("=" * 65)
+
+    # Scenario: "new_column" | "missing_column" | "rename" | "type_mismatch" | "combined"
+    TEST_SCENARIO = "combined"
+
+    # ── Simulert column_mapping ───────────────────────────────────────
+    mock_mapping = [
+        {"source": "video_id",             "target": "video_id",           "type": "string"},
+        {"source": "snippet.title",        "target": "video_title",        "type": "string"},
+        {"source": "snippet.publishedAt",  "target": "asset_publish_date", "type": "timestamp"},
+        {"source": "statistics.viewCount", "target": "video_view_count",   "type": "bigint"},
+        {"source": "statistics.likeCount", "target": "video_like_count",   "type": "bigint"},
+        {"source": "_loading_ts",          "target": "loading_ts",         "type": "timestamp"},
+    ]
+
+    mock_load_params = {
+        "column_mapping_id": "youtube_videos",
+        "required_fields":   "video_id,snippet,statistics",
+        "not_null_fields":   "video_id",
+    }
+
+    # ── Bygg simulert rådata ──────────────────────────────────────────
+    from pyspark.sql import Row
+
+    base_row = {
+        "video_id":   "abc123",
+        "snippet":    Row(title="Test video", publishedAt="2024-01-01T00:00:00Z"),
+        "statistics": Row(viewCount="1000", likeCount="50"),
+    }
+
+    scenarios = {
+        "new_column":     ([{**base_row, "contentDetails": Row(duration="PT4M13S")}],
+                           "Nytt felt 'contentDetails' dukker opp i filen"),
+        "missing_column": ([{"video_id": "abc123",
+                             "snippet": Row(title="Test video", publishedAt="2024-01-01T00:00:00Z")}],
+                           "Required felt 'statistics' mangler i filen"),
+        "rename":         ([{"video_id":      "abc123",
+                             "video_snippet": Row(title="Test video", publishedAt="2024-01-01T00:00:00Z"),
+                             "statistics":    Row(viewCount="1000", likeCount="50")}],
+                           "Feltet 'snippet' er renamed til 'video_snippet'"),
+        "type_mismatch":  ([{"video_id":   "abc123",
+                             "snippet":    Row(title="Test video", publishedAt="2024-01-01T00:00:00Z"),
+                             "statistics": Row(viewCount=1000, likeCount=50)}],
+                           "statistics.viewCount endret fra string til int"),
+        "combined":       ([{"video_id":      "abc123",
+                             "video_snippet": Row(title="Test video", publishedAt="2024-01-01T00:00:00Z"),
+                             "statistics":    Row(viewCount=1000, likeCount=50),
+                             "newField":      "ukjent_verdi"}],
+                           "Kombinert: rename + type + nytt felt + manglende felt"),
+    }
+
+    if TEST_SCENARIO not in scenarios:
+        print(f"  Ukjent scenario: '{TEST_SCENARIO}'")
+    else:
+        test_rows, desc = scenarios[TEST_SCENARIO]
+        print(f"\n  Scenario    : {TEST_SCENARIO}")
+        print(f"  Beskrivelse : {desc}\n")
+
+        # Flat struktur direkte – detect_schema_drift håndterer begge format
+        mock_raw_df = spark.createDataFrame(test_rows)
+
+
+        # ── Mock-funksjonar ───────────────────────────────────────────
+        # Patch globals() direkte – fungerer med %run-basert import
+        _orig_log_drift   = globals()["log_drift"]
+        _orig_notify      = globals()["notify_teams_drift"]
+
+        def _mock_log_drift(spark, drift_records, column_mapping_id,
+                            source_path=None, file_name=None, run_id=None, **ctx):
+            print(f"\n  [MOCK] Ville skrevet {len(drift_records)} rad(er) til log.schema_drift:")
+            for r in drift_records:
+                print(f"         {r['severity']:6} | {r['drift_type']:20} "
+                      f"| kolonne='{r['column_name']}'")
+                print(f"                → {r['suggested_action'][:100]}")
+            return len(drift_records)
+
+        def _mock_notify(drift_report, source_path, file_name,
+                         column_mapping_id, run_id=None,
+                         pipeline_name="data_pipeline",
+                         notebook_name="nb-av01-1-load",
+                         teams_webhook_url=None):
+            print(f"\n  [MOCK] Ville sendt Teams-varsling via Power Automate webhook")
+            print(f"         {drift_report['high_count']} KRITISK, "
+                  f"{drift_report['medium_count']} ADVARSEL/ANMERKNING")
+            for r in drift_report["records"]:
+                ec  = _DRIFT_TO_ERROR_CODE.get(r["drift_type"], "E005")
+                sev = _SEVERITY[ec]
+                print(f"         {sev['icon']} [{ec}] {r['drift_type']:20} "
+                      f"'{r['column_name']}'  → {sev['label']}")
+
+        globals()["log_drift"]          = _mock_log_drift
+        globals()["notify_teams_drift"] = _mock_notify
+
+        try:
+            result = detect_schema_drift(
+                spark             = spark,
+                raw_df            = mock_raw_df,
+                mapping           = mock_mapping,
+                load_params       = mock_load_params,
+                source_path       = "Files/youtube_data_v3/videos/",
+                file_name         = f"TEST_{TEST_SCENARIO}_2026-05-29.json",
+                column_mapping_id = "youtube_videos",
+                run_id            = -1,
+            )
+
+            print(f"\n  {'─'*55}")
+            print(f"  Resultat:")
+            print(f"    has_drift   : {result['has_drift']}")
+            print(f"    high_count  : {result['high_count']}")
+            print(f"    medium_count: {result['medium_count']}")
+            print(f"    compatible  : {result['compatible']}")
+            print(f"  {'─'*55}")
+            print("  TEST FULLFØRT – ingen ekte data blei berørt\n")
+
+        finally:
+            globals()["log_drift"]          = _orig_log_drift
+            globals()["notify_teams_drift"] = _orig_notify
+
+else:
+    pass
 
 # METADATA ********************
 

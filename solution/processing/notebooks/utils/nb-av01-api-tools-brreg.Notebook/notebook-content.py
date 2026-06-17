@@ -190,9 +190,6 @@ if TEST_MODE:
 
 # CELL ********************
 
-
-
-
 # ── BRREG API konfigurasjon ───────────────────────────────────────────────────
 
 BRREG_BASE_URL = "https://data.brreg.no/enhetsregisteret/api"
@@ -255,7 +252,47 @@ def extract_organisasjonsnumre(oppdateringer: list) -> list:
         return []
     return [str(item["organisasjonsnummer"]) for item in oppdateringer if item.get("organisasjonsnummer")]
 
-def fetch_enheter_batch(base_url: str, orgnr_liste: list, batch_size: int = 100) -> list:
+def fetch_enheter_batch(base_url: str, orgnr_liste: list, batch_size: int = 1000) -> list:
+    """
+    Henter full enhet-data i batch via ?organisasjonsnummer=111,222,...
+    batch_size økt fra 100 → 1000 (BRREG støtter size=1000 på /enheter).
+    sleep fjernet – ikke nødvendig for batch-endepunktet.
+    """
+    if not orgnr_liste:
+        return []
+
+    enheter      = []
+    total        = len(orgnr_liste)
+    antall_batch = (total + batch_size - 1) // batch_size
+
+    for i in range(0, total, batch_size):
+        batch    = orgnr_liste[i : i + batch_size]
+        batch_nr = i // batch_size + 1
+
+        response = _brreg_request_with_retry(
+            f"{base_url}/enheter",
+            params={
+                "organisasjonsnummer": ",".join(batch),
+                "size":                batch_size,
+            },
+            headers=BRREG_HEADERS
+        )
+        data          = response.json()
+        batch_enheter = data.get("_embedded", {}).get("enheter", [])
+        enheter.extend(batch_enheter)
+
+        if batch_nr % 5 == 0 or batch_nr == antall_batch:
+            print(f"  -> Batch {batch_nr}/{antall_batch} "
+                  f"({len(enheter):,}/{total:,} enheter)")
+
+        # Ingen sleep – BRREG batch-endepunkt throttler ikke ved normale volumer.
+        # Legg til time.sleep(0.1) hvis du får 429-svar.
+
+    print(f"  Fetched {len(enheter):,} enheter totalt "
+          f"({total - len(enheter):,} ikke funnet/slettet)")
+    return enheter
+
+def fetch_enheter_batch_old(base_url: str, orgnr_liste: list, batch_size: int = 100) -> list:
     """
     Henter full enhet-data i batch via ?organisasjonsnummer=111,222,333
     22 391 enkeltoppslag → 224 batch-kall
@@ -943,30 +980,6 @@ if TEST_MODE:
 if TEST_MODE:
     # Nullstill før test 1
     brreg_cleanup(spark, RAW_BASE_PATH, reset_watermark=True)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-SILVER = "lh_av01_silver"
-
-TABELLER_MED_CDF_SILVER = [
-    f"`{CATALOG}`.`{SILVER}`.brreg.enheter",
-    f"`{CATALOG}`.`{SILVER}`.sharepoint.meldingslogg",
-]
-
-print("=== Aktiverer CDF på Silver ===")
-for tabell in TABELLER_MED_CDF_SILVER:
-    spark.sql(f"""
-        ALTER TABLE {tabell}
-        SET TBLPROPERTIES (delta.enableChangeDataFeed = true)
-    """)
-    print(f"  ✅ CDF aktivert: {tabell}")
 
 # METADATA ********************
 

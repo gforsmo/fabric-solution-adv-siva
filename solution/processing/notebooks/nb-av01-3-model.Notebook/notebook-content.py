@@ -107,40 +107,38 @@ first_instr   = transform_instructions[0] if transform_instructions else {}
 PIPELINE_NAME = first_instr.get("pipeline_name", "data_pipeline")
 NOTEBOOK_NAME = first_instr.get("notebook_name", "nb-av01-3-model")
 
-
 def model_executor(spark, instr):
-    """
-    Execute a single Silver → Gold modeling instruction.
-    Returns (row_count, source_name, detail).
-    Støtter CDF for inkrementell prosessering og _synthetic for datodimensjon.
-    """
     dest_path  = GOLD_BASE_PATH + instr["dest_table"]
     use_cdf    = bool(instr.get("use_cdf", False))
     slettet_df = None
 
-    print(f"Modeling: {instr['source_table']} -> {instr['dest_table']}"
-          f" [{'CDF' if use_cdf else 'full'}]")
-
-    # ── Syntetisk kilde (f.eks. dim_dato) ────────────────────────────────────
+    # ── Syntetisk kjelde (dim_dato) ───────────────────────────────────────────
+    # Alltid regenerer – er billeg å generere og unngår problem
+    # ved delvise køyringar eller reset utan logg-sletting
     if instr["source_table"] == "_synthetic":
         from pyspark.sql.types import StructType
-        try:
-            existing = DeltaTable.forPath(spark, dest_path).toDF()
-            if existing.count() > 0:
-                print(f"  -> {instr['dest_table']} allerede fylt – hopper over")
-                return (0, "_synthetic", instr["dest_table"])
-        except Exception:
-            pass
         df = spark.createDataFrame([], StructType([]))
 
-    # ── Les fra Silver – CDF eller full ──────────────────────────────────────
+    # ── Les frå Silver – CDF eller full ──────────────────────────────────────
     else:
         source_path = SILVER_BASE_PATH + instr["source_table"]
+
+        if use_cdf:
+            try:
+                if spark.read.format("delta").load(dest_path).isEmpty():
+                    print("  Gold is empty – forcing full load")
+                    use_cdf = False
+            except Exception:
+                print("  Gold does not exist yet – forcing full load")
+                use_cdf = False
+
         df, slettet_df = les_delta_med_cdf(
             spark, source_path, instr["source_table"], use_cdf
         )
 
-    # ── Transform pipeline ────────────────────────────────────────────────────
+    print(f"Modeling: {instr['source_table']} -> {instr['dest_table']}"
+          f" [{'CDF' if use_cdf else 'full'}]")
+
     pipeline  = json.loads(instr["transform_pipeline"])
     params    = json.loads(instr["transform_params"]) if instr.get("transform_params") else {}
 
@@ -158,7 +156,6 @@ def model_executor(spark, instr):
     if not instr.get("merge_type"):
         raise ValueError(f"merge_type is required for {instr['dest_table']}")
 
-    # ── Merge til Gold ────────────────────────────────────────────────────────
     row_count = merge_to_delta(
         spark           = spark,
         source_df       = result_df,
@@ -168,19 +165,29 @@ def model_executor(spark, instr):
         merge_columns   = merge_columns
     )
 
-    # ── Håndter slettinger ────────────────────────────────────────────────────
     if slettet_df is not None:
+        key_cols = [
+            part.split("source.")[1].strip()
+            for part in instr["merge_condition"].split("AND")
+            if "source." in part
+        ]
+        slettet_keys = slettet_df.select(key_cols)
+        delete_count = slettet_keys.count()
+
         DeltaTable.forPath(spark, dest_path) \
             .alias("target") \
-            .merge(slettet_df.alias("source"), instr["merge_condition"]) \
+            .merge(slettet_keys.alias("source"), instr["merge_condition"]) \
             .whenMatchedDelete() \
             .execute()
-        print(f"  -> Slettinger utført i {instr['dest_table']}")
+        print(f"  -> {delete_count} rows deleted from {instr['dest_table']}")
 
-    print(f"  -> Merged to {instr['dest_table']}")
+    if row_count > 0 or slettet_df is not None:
+        print(f"  -> Merged to {instr['dest_table']}")
+    else:
+        print(f"  -> Skipped {instr['dest_table']} (no changes)")
+
     return (row_count, instr["source_table"], instr["dest_table"])
-
-
+   
 execute_pipeline_stage(
     spark          = spark,
     instructions   = transform_instructions,

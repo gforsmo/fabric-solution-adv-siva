@@ -79,6 +79,28 @@ validation_instructions = get_active_instructions(spark, "validations", layer="g
 # META   "language_group": "synapse_pyspark"
 # META }
 
+# CELL ********************
+
+display(expectation_lookup)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+display(validation_instructions)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
 # MARKDOWN ********************
 
 # ## Initialize Great Expectations

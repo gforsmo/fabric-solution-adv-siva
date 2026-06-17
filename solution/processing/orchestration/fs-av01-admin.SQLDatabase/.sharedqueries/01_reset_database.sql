@@ -95,8 +95,23 @@ GO
 IF EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'instructions' AND t.name = 'transformations')
     DROP TABLE [instructions].[transformations]
 GO
+
+IF EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'instructions' AND t.name = 'sm_validation')
+    DROP TABLE [instructions].[sm_validation]
+GO
+IF EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'instructions' AND t.name = 'semantic_model')
+    DROP TABLE [instructions].[semantic_model]
+GO
 IF EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'instructions' AND t.name = 'validations')
     DROP TABLE [instructions].[validations]
+GO
+-- Semantic model metadata tables
+IF EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'sm_expectation_store')
+    DROP TABLE [metadata].[sm_expectation_store]
+GO
+
+IF EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'sm_store')
+    DROP TABLE [metadata].[sm_store]
 GO
 IF EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name = 'metadata' AND t.name = 'source_store')
     DROP TABLE [metadata].[source_store]

@@ -72,6 +72,12 @@
       "note": "",
       "type": "String",
       "value": "sm_av01_bedrift_dl"
+    },
+    {
+      "name": "ADMIN_LH_NAME",
+      "note": "",
+      "type": "String",
+      "value": "lh_av01_admin"
     }
   ]
 }
